@@ -162,9 +162,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       layersCard.style.display = 'none';
     }
 
-    // Priorizar PDF vectorial nativo nítido de Chromium si está disponible
-    if (captureData.isVector && captureData.pdfBase64) {
-      loadingStatusText.textContent = 'Procesando PDF vectorial nativo nítido...';
+    // Habilitar o deshabilitar opción vector-native en el dropdown según disponibilidad
+    if (pdfEngineSelect) {
+      const nativeOpt = pdfEngineSelect.querySelector('option[value="vector-native"]');
+      if (nativeOpt) {
+        nativeOpt.disabled = !captureData.isVector || !captureData.pdfBase64;
+      }
+    }
+
+    // Priorizar motor Vectorial Puro Fiel (~50KB) si hay palabras cosechadas
+    if (normalizedWords && normalizedWords.length > 0) {
+      loadingStatusText.textContent = 'Generando PDF vectorial puro fiel...';
+      const cleanVectorBytes = await generateCleanVectorPdf();
+      captureData.cleanVectorBytes = cleanVectorBytes;
+      captureData.pdfBytes = cleanVectorBytes;
+
+      statEngineEl.textContent = '⚡ Vectorial Puro Fiel (~50KB)';
+      vectorBadge.style.display = 'inline-flex';
+      vectorBadge.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        PDF Vectorial Fiel
+      `;
+      if (pdfEngineSelect) pdfEngineSelect.value = 'vector-clean';
+    } else if (captureData.isVector && captureData.pdfBase64) {
+      loadingStatusText.textContent = 'Procesando PDF vectorial nativo de Chromium...';
       const binaryString = atob(captureData.pdfBase64);
       const len = binaryString.length;
       let rawBytes = new Uint8Array(len);
@@ -177,14 +200,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       captureData.cdpBytes = rawBytes;
       captureData.pdfBytes = rawBytes;
 
-      statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito ~500KB)';
+      statEngineEl.textContent = '🖨️ Chromium CDP Print (~1MB)';
       vectorBadge.style.display = 'inline-flex';
-      vectorBadge.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-        PDF Vectorial Nativo
-      `;
       if (pdfEngineSelect) pdfEngineSelect.value = 'vector-native';
     } else {
       loadingStatusText.textContent = 'Generando PDF fiel de alta definición...';
@@ -207,7 +224,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         try {
           const mode = pdfEngineSelect.value;
-          if (mode === 'vector-native' || mode === 'cdp-full') {
+          if (mode === 'vector-clean') {
+            if (!captureData.cleanVectorBytes) {
+              captureData.cleanVectorBytes = await generateCleanVectorPdf();
+            }
+            captureData.pdfBytes = captureData.cleanVectorBytes;
+            statEngineEl.textContent = '⚡ Vectorial Puro Fiel (~50KB)';
+          } else if (mode === 'vector-hybrid' || mode === 'raster-hd') {
+            if (!captureData.rasterHdBytes) {
+              captureData.rasterHdBytes = await generateFallbackSearchablePdf();
+            }
+            captureData.pdfBytes = captureData.rasterHdBytes;
+            statEngineEl.textContent = '📸 Fiel Buscable HD (~150KB)';
+          } else if (mode === 'vector-native' || mode === 'cdp-full') {
             if (!captureData.cdpBytes && captureData.isVector && captureData.pdfBase64) {
               const binaryString = atob(captureData.pdfBase64);
               const len = binaryString.length;
@@ -219,19 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               captureData.cdpBytes = rawBytes;
             }
             captureData.pdfBytes = captureData.cdpBytes || captureData.rasterHdBytes;
-            statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito ~500KB)';
-          } else if (mode === 'vector-hybrid' || mode === 'raster-hd') {
-            if (!captureData.rasterHdBytes) {
-              captureData.rasterHdBytes = await generateFallbackSearchablePdf();
-            }
-            captureData.pdfBytes = captureData.rasterHdBytes;
-            statEngineEl.textContent = '📸 Fiel Buscable HD (~150KB)';
-          } else if (mode === 'vector-clean') {
-            if (!captureData.cleanVectorBytes) {
-              captureData.cleanVectorBytes = await generateCleanVectorPdf();
-            }
-            captureData.pdfBytes = captureData.cleanVectorBytes;
-            statEngineEl.textContent = '📝 Texto Minimalista (~4KB)';
+            statEngineEl.textContent = '🖨️ Chromium CDP Print (~1MB)';
           }
 
           let finalBytes = captureData.pdfBytes;
@@ -887,7 +904,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return await pdfDoc.save({ useObjectStreams: true });
   }
 
-  // Generador de PDF Vectorial Puro Ultraliviano (sin fotos de fondo, texto real nativo nítido)
+  // Generador de PDF Vectorial Puro Fiel (~50KB)
+  // Fondo real, imágenes/avatares del post incrustados y texto nativo 100% vectorial
   async function generateCleanVectorPdf() {
     const { PDFDocument, StandardFonts, rgb, PDFString, PDFName } = PDFLib;
     const pdfDoc = await PDFDocument.create();
@@ -896,25 +914,113 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const page = pdfDoc.addPage([finalWidth, finalHeight]);
 
-    // Fondo blanco limpio por defecto
+    function parseCssColor(cssStr, defaultColor = rgb(0.1, 0.1, 0.1)) {
+      if (!cssStr) return defaultColor;
+      const m = cssStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      if (m) {
+        if (m[4] !== undefined && parseFloat(m[4]) === 0) {
+          return null;
+        }
+        return rgb(
+          Math.min(1, Math.max(0, parseInt(m[1], 10) / 255)),
+          Math.min(1, Math.max(0, parseInt(m[2], 10) / 255)),
+          Math.min(1, Math.max(0, parseInt(m[3], 10) / 255))
+        );
+      }
+      return defaultColor;
+    }
+
+    // 1. Determinar y pintar el color de fondo fiel
+    let bgRgb = null;
+    if (captureData.backgroundColor) {
+      bgRgb = parseCssColor(captureData.backgroundColor, null);
+    }
+
+    // Si el fondo no se detectó o es transparente, inferir según la luminancia de las palabras
+    if (!bgRgb) {
+      let lightWordCount = 0;
+      let totalCount = 0;
+      for (const w of normalizedWords.slice(0, 40)) {
+        if (!w.color) continue;
+        const m = w.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (m) {
+          const r = parseInt(m[1], 10);
+          const g = parseInt(m[2], 10);
+          const b = parseInt(m[3], 10);
+          const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+          if (lum > 0.6) lightWordCount++;
+          totalCount++;
+        }
+      }
+      if (totalCount > 0 && lightWordCount / totalCount > 0.45) {
+        // Modo oscuro detectado (#242526 de Facebook)
+        bgRgb = rgb(36 / 255, 37 / 255, 38 / 255);
+      } else {
+        bgRgb = rgb(1, 1, 1);
+      }
+    }
+
     page.drawRectangle({
       x: 0,
       y: 0,
       width: finalWidth,
       height: finalHeight,
-      color: rgb(1, 1, 1)
+      color: bgRgb
     });
 
-    // Helper para parsear rgb(r, g, b)
-    function parseCssColor(cssStr) {
-      if (!cssStr) return rgb(0.1, 0.1, 0.1);
-      const m = cssStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-      if (m) {
-        return rgb(parseInt(m[1], 10) / 255, parseInt(m[2], 10) / 255, parseInt(m[3], 10) / 255);
+    // 2. Incrustar imágenes locales (avatares, fotos de publicaciones) desde mainCanvas
+    const localImages = captureData.images || [];
+    if (localImages.length > 0 && mainCanvas && mainCanvas.width > 0) {
+      const scaleX = mainCanvas.width / finalWidth;
+      const scaleY = mainCanvas.height / finalHeight;
+
+      for (const imgInfo of localImages) {
+        const iw = Math.round(imgInfo.width);
+        const ih = Math.round(imgInfo.height);
+        if (iw < 10 || ih < 10) continue;
+        if (imgInfo.x < 0 || imgInfo.y < 0 || imgInfo.x + iw > finalWidth || imgInfo.y + ih > finalHeight) continue;
+
+        try {
+          const auxCanvas = document.createElement('canvas');
+          const cropW = Math.round(iw * scaleX);
+          const cropH = Math.round(ih * scaleY);
+          auxCanvas.width = Math.min(cropW, iw * 2);
+          auxCanvas.height = Math.min(cropH, ih * 2);
+
+          const auxCtx = auxCanvas.getContext('2d');
+          auxCtx.drawImage(
+            mainCanvas,
+            Math.round(imgInfo.x * scaleX),
+            Math.round(imgInfo.y * scaleY),
+            cropW,
+            cropH,
+            0,
+            0,
+            auxCanvas.width,
+            auxCanvas.height
+          );
+
+          // Calidad JPEG 0.85 -> peso minúsculo (~2-5 KB por avatar/foto) y 0 CORS
+          const imgDataUrl = auxCanvas.toDataURL('image/jpeg', 0.85);
+          const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
+          const embeddedImg = await pdfDoc.embedJpg(imgBytes);
+
+          const pdfImgX = imgInfo.x;
+          const pdfImgY = finalHeight - (imgInfo.y + ih);
+
+          page.drawImage(embeddedImg, {
+            x: pdfImgX,
+            y: pdfImgY,
+            width: iw,
+            height: ih
+          });
+        } catch (imgErr) {
+          console.warn('[SnapPDF] Error incrustando imagen local en PDF vectorial:', imgErr);
+        }
       }
-      return rgb(0.1, 0.1, 0.1);
     }
 
+    // 3. Dibujar texto vectorial nativo (zoom infinito, nítido y seleccionable)
     const sortedWords = [...normalizedWords].sort((a, b) => {
       const dy = a.y - b.y;
       if (Math.abs(dy) > 5) return dy;
@@ -928,11 +1034,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const isBold = w.fontWeight && (parseInt(w.fontWeight, 10) >= 600 || w.fontWeight === 'bold');
       const font = isBold ? boldFont : regularFont;
-      const textColor = parseCssColor(w.color);
+      const textColor = parseCssColor(w.color, rgb(0.1, 0.1, 0.1));
 
       const pdfX = w.x;
-      const pdfY = finalHeight - (w.y + w.height);
-      let fontSize = Math.max(5, Math.round(w.height * 0.8));
+      const baselineOffset = Math.round(w.height * 0.82);
+      const pdfY = finalHeight - (w.y + baselineOffset);
+      let fontSize = Math.max(5, w.fontSize || Math.round(w.height * 0.8));
 
       let textWidth = 0;
       try {
@@ -964,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Agregar enlaces activos
+    // 4. Agregar hipervínculos activos
     const annotRefs = [];
     normalizedLinks.forEach(l => {
       if (!l.url) return;

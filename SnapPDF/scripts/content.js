@@ -147,6 +147,7 @@
                 const compStyle = window.getComputedStyle(parent);
                 const color = compStyle ? compStyle.color : 'rgb(0,0,0)';
                 const fontWeight = compStyle ? compStyle.fontWeight : '400';
+                const fontSize = compStyle ? parseFloat(compStyle.fontSize) || Math.round(rect.height * 0.8) : Math.round(rect.height * 0.8);
 
                 words.push({
                   text: word,
@@ -154,6 +155,7 @@
                   y: Math.round(pageY),
                   width: Math.round(rect.width),
                   height: Math.round(rect.height),
+                  fontSize: Math.round(fontSize),
                   color,
                   fontWeight,
                   hasUnicode
@@ -205,7 +207,82 @@
         }
       });
 
-      return { words, links };
+      // Imágenes locales dentro del área (avatares, fotos del post, badges)
+      const rawImages = [];
+      const imgElements = document.querySelectorAll('img, image, [role="img"]');
+      imgElements.forEach(img => {
+        if (!this.isNodeVisible(img)) return;
+        if (img.closest('#__snappdf_overlay') || img.closest('#__snappdf_toast')) return;
+
+        const rects = img.getClientRects();
+        if (!rects || rects.length === 0) return;
+        const r = rects[0];
+        if (r.width < 10 || r.height < 10) return;
+
+        const pageX = r.left + scroll.x;
+        const pageY = r.top + scroll.y;
+        const pageRight = pageX + r.width;
+        const pageBottom = pageY + r.height;
+
+        if (bounds) {
+          if (
+            pageRight < bounds.left ||
+            pageX > bounds.right ||
+            pageBottom < bounds.top ||
+            pageY > bounds.bottom
+          ) {
+            return;
+          }
+        }
+
+        rawImages.push({
+          x: Math.round(pageX),
+          y: Math.round(pageY),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
+        });
+      });
+
+      // Deduplicar imágenes con posiciones y dimensiones coincidentes
+      const images = [];
+      for (const item of rawImages) {
+        const isDuplicate = images.some(existing =>
+          Math.abs(existing.x - item.x) < 8 &&
+          Math.abs(existing.y - item.y) < 8 &&
+          Math.abs(existing.width - item.width) < 12 &&
+          Math.abs(existing.height - item.height) < 12
+        );
+        if (!isDuplicate) {
+          images.push(item);
+        }
+      }
+
+      // Detección del color de fondo real del contenedor o body (soporte nativo modo oscuro / claro)
+      let backgroundColor = null;
+      if (bounds) {
+        const clientCenterX = Math.round((bounds.left + bounds.right) / 2) - scroll.x;
+        const clientCenterY = Math.round((bounds.top + bounds.bottom) / 2) - scroll.y;
+        let el = document.elementFromPoint(
+          Math.max(10, Math.min(window.innerWidth - 10, clientCenterX)),
+          Math.max(10, Math.min(window.innerHeight - 10, clientCenterY))
+        );
+        while (el && el !== document.documentElement) {
+          const bg = window.getComputedStyle(el).backgroundColor;
+          if (bg && bg !== 'transparent' && !bg.startsWith('rgba(0, 0, 0, 0)')) {
+            backgroundColor = bg;
+            break;
+          }
+          el = el.parentElement;
+        }
+      }
+      if (!backgroundColor) {
+        const bodyBg = window.getComputedStyle(document.body || document.documentElement).backgroundColor;
+        if (bodyBg && bodyBg !== 'transparent' && !bodyBg.startsWith('rgba(0, 0, 0, 0)')) {
+          backgroundColor = bodyBg;
+        }
+      }
+
+      return { words, links, images, backgroundColor };
     }
   }
 
@@ -532,7 +609,7 @@
       const viewportWidth = dims.viewportWidth;
       const viewportHeight = dims.viewportHeight;
 
-      const { words, links } = DomHarvester.harvest({
+      const { words, links, images, backgroundColor } = DomHarvester.harvest({
         left: rectX,
         top: rectY,
         right: rectX + rectW,
@@ -685,6 +762,14 @@
         },
         words: words.map(w => ({ ...w, x: w.x - rectX, y: w.y - rectY })),
         links: links.map(l => ({ ...l, x: l.x - rectX, y: l.y - rectY })),
+        images: (images || []).map(img => ({
+          ...img,
+          x: Math.max(0, img.x - rectX),
+          y: Math.max(0, img.y - rectY),
+          width: Math.min(img.width, rectW - Math.max(0, img.x - rectX)),
+          height: Math.min(img.height, rectH - Math.max(0, img.y - rectY))
+        })),
+        backgroundColor,
         title: document.title || 'Recuadro',
         url: window.location.href
       };
@@ -773,7 +858,7 @@
         }
 
         const calculatedFinalHeight = Math.max(maxCapturedBottom, fullHeight);
-        const { words, links } = DomHarvester.harvest(null);
+        const { words, links, images, backgroundColor } = DomHarvester.harvest(null);
 
         return {
           slices,
@@ -783,6 +868,8 @@
           viewportHeight,
           words,
           links,
+          images: images || [],
+          backgroundColor,
           title: document.title || 'Página Completa',
           url: window.location.href
         };
@@ -802,7 +889,7 @@
       const viewportWidth = dims.viewportWidth;
       const viewportHeight = dims.viewportHeight;
 
-      const { words, links } = DomHarvester.harvest({
+      const { words, links, images, backgroundColor } = DomHarvester.harvest({
         left: scroll.x,
         top: scroll.y,
         right: scroll.x + viewportWidth,
@@ -831,6 +918,14 @@
         },
         words: words.map(w => ({ ...w, x: w.x - scroll.x, y: w.y - scroll.y })),
         links: links.map(l => ({ ...l, x: l.x - scroll.x, y: l.y - scroll.y })),
+        images: (images || []).map(img => ({
+          ...img,
+          x: Math.max(0, img.x - scroll.x),
+          y: Math.max(0, img.y - scroll.y),
+          width: Math.min(img.width, viewportWidth - Math.max(0, img.x - scroll.x)),
+          height: Math.min(img.height, viewportHeight - Math.max(0, img.y - scroll.y))
+        })),
+        backgroundColor,
         title: document.title || 'Vista Visible',
         url: window.location.href
       };
