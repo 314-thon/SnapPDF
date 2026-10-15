@@ -147,6 +147,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         return;
       }
+
+      // Disparador de PDF vectorial nativo (Chrome DevTools Protocol)
+      if (request.action === 'trigger-vector-pdf') {
+        sendResponse({ success: true });
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) {
+          await ensureContentScript(tab.id);
+          const result = await printTabToVectorPdf(tab);
+          if (result && result.pdfBase64) {
+            await openPreview({
+              isVector: true,
+              type: 'vector',
+              pdfBase64: result.pdfBase64,
+              title: tab.title || 'Página Web',
+              url: tab.url || '',
+              width: result.width || 1200,
+              height: result.height || 1600
+            });
+          }
+        }
+        return;
+      }
     } catch (err) {
       console.error('[SnapPDF Background] Error general:', err);
       sendResponse({ success: false, error: err.message });
@@ -155,3 +177,65 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   return true;
 });
+
+// Generación de PDF vectorial nativo mediante CDP (Page.printToPDF)
+async function printTabToVectorPdf(tab) {
+  const target = { tabId: tab.id };
+  try {
+    await chrome.debugger.attach(target, '1.3');
+
+    // Habilitar Page domain
+    await chrome.debugger.sendCommand(target, 'Page.enable');
+
+    // Obtener dimensiones del layout de la página
+    let widthInches = 8.27; // A4 por defecto (ancho en pulgadas)
+    let heightInches = 11.69; // A4 por defecto (alto en pulgadas)
+    let widthPx = 1200;
+    let heightPx = 1600;
+
+    try {
+      const layoutMetrics = await chrome.debugger.sendCommand(target, 'Page.getLayoutMetrics');
+      if (layoutMetrics && layoutMetrics.contentSize) {
+        widthPx = Math.ceil(layoutMetrics.contentSize.width) || 1200;
+        heightPx = Math.ceil(layoutMetrics.contentSize.height) || 1600;
+        // 96 DPI: convertir píxeles CSS a pulgadas para que quede en una página continua continua
+        widthInches = +(widthPx / 96).toFixed(2);
+        heightInches = +(heightPx / 96).toFixed(2);
+      }
+    } catch (metricsErr) {
+      console.warn('[SnapPDF] No se pudo obtener métricas de layout, usando estándar:', metricsErr);
+    }
+
+    // Parámetros de impresión vectorial continua sin márgenes
+    const printOptions = {
+      landscape: false,
+      displayHeaderFooter: false,
+      printBackground: true,
+      scale: 1,
+      paperWidth: widthInches,
+      paperHeight: heightInches,
+      marginTop: 0,
+      marginBottom: 0,
+      marginLeft: 0,
+      marginRight: 0,
+      preferCSSPageSize: false,
+      generateTaggedPDF: true,
+      generateDocumentOutline: true
+    };
+
+    const pdfResult = await chrome.debugger.sendCommand(target, 'Page.printToPDF', printOptions);
+    await chrome.debugger.detach(target);
+
+    return {
+      pdfBase64: pdfResult.data,
+      width: widthPx,
+      height: heightPx
+    };
+  } catch (err) {
+    try {
+      await chrome.debugger.detach(target);
+    } catch (e) {}
+    console.error('[SnapPDF] Error en printTabToVectorPdf:', err);
+    throw err;
+  }
+}

@@ -14,6 +14,8 @@ const SNAP_TRANSLATIONS = {
     btnFullpageDesc: "PDF continuo con links y sin pixelado",
     btnVisibleTitle: "Vista Actual",
     btnVisibleDesc: "Captura rápida en PDF de lo que ves",
+    btnVectorPdfTitle: "PDF Vectorial Nativo",
+    btnVectorPdfDesc: "Texto y enlaces 100% nítidos sin imagen",
     featureTag: "Motor Ultra HD • Links Activos",
 
     // Preview Topbar
@@ -67,6 +69,8 @@ const SNAP_TRANSLATIONS = {
     btnFullpageDesc: "Seamless PDF with clickable links",
     btnVisibleTitle: "Visible View",
     btnVisibleDesc: "Instant PDF capture of what you see",
+    btnVectorPdfTitle: "Native Vector PDF",
+    btnVectorPdfDesc: "100% sharp text & links without raster image",
     featureTag: "Ultra HD Engine • Active Links",
 
     // Preview Topbar
@@ -120,6 +124,8 @@ const SNAP_TRANSLATIONS = {
     btnFullpageDesc: "PDF contínuo com links e sem cortes",
     btnVisibleTitle: "Vista Atual",
     btnVisibleDesc: "Captura rápida em PDF do que você vê",
+    btnVectorPdfTitle: "PDF Vetorial Nativo",
+    btnVectorPdfDesc: "Texto e links 100% nítidos sem rasterização",
     featureTag: "Motor Ultra HD • Links Ativos",
 
     // Preview Topbar
@@ -173,6 +179,8 @@ const SNAP_TRANSLATIONS = {
     btnFullpageDesc: "リンクを保持した高品質スクロールPDF",
     btnVisibleTitle: "表示領域",
     btnVisibleDesc: "画面に見えている部分をすばやくキャプチャ",
+    btnVectorPdfTitle: "ネイティブベクターPDF",
+    btnVectorPdfDesc: "画像を挟まず100%鮮明なテキストとリンク",
     featureTag: "Ultra HDエンジン • リンク保持",
 
     // Preview Topbar
@@ -226,6 +234,8 @@ const SNAP_TRANSLATIONS = {
     btnFullpageDesc: "링크가 유지되는 스크롤 연속 PDF",
     btnVisibleTitle: "현재 화면",
     btnVisibleDesc: "보이는 화면을 즉시 PDF로 캡처",
+    btnVectorPdfTitle: "네이티브 벡터 PDF",
+    btnVectorPdfDesc: "래스터 이미지 없이 100% 선명한 텍스트 및 링크",
     featureTag: "Ultra HD 엔진 • 활성 링크 유지",
 
     // Preview Topbar

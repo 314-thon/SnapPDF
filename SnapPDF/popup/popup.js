@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnSelection = document.getElementById('btnSelection');
   const btnFullpage = document.getElementById('btnFullpage');
   const btnVisible = document.getElementById('btnVisible');
+  const btnVectorPdf = document.getElementById('btnVectorPdf');
   const flagButtons = document.querySelectorAll('.flag-btn');
 
   // Inicializar idioma
@@ -34,4 +35,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.sendMessage({ action: 'trigger-visible' });
     window.close();
   });
+
+  if (btnVectorPdf) {
+    btnVectorPdf.addEventListener('click', async () => {
+      chrome.runtime.sendMessage({ action: 'trigger-vector-pdf' });
+      window.close();
+    });
+  }
 });

@@ -24,7 +24,8 @@
     "scripting",
     "storage",
     "unlimitedStorage",
-    "clipboardWrite"
+    "clipboardWrite",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>"
