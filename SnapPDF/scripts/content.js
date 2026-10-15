@@ -894,50 +894,6 @@
       return true;
     }
 
-    if (request.action === 'apply-print-crop') {
-      const box = request.cropBox;
-      let styleEl = document.getElementById('__snappdf_print_crop');
-      if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = '__snappdf_print_crop';
-        document.head.appendChild(styleEl);
-      }
-      styleEl.textContent = `
-        @media print {
-          @page {
-            size: ${box.width}px ${box.height}px !important;
-            margin: 0 !important;
-          }
-          html {
-            width: ${box.width}px !important;
-            height: ${box.height}px !important;
-            overflow: hidden !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          body {
-            width: ${box.width}px !important;
-            height: ${box.height}px !important;
-            overflow: hidden !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            position: relative !important;
-            transform: translate(-${box.x}px, -${box.y}px) !important;
-            transform-origin: top left !important;
-          }
-        }
-      `;
-      sendResponse({ success: true });
-      return false;
-    }
-
-    if (request.action === 'remove-print-crop') {
-      const styleEl = document.getElementById('__snappdf_print_crop');
-      if (styleEl) styleEl.remove();
-      sendResponse({ success: true });
-      return false;
-    }
-
     return false;
   });
 

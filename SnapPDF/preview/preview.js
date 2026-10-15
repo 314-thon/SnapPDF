@@ -164,11 +164,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Priorizar PDF vectorial nativo nítido de Chromium si está disponible
     if (captureData.isVector && captureData.pdfBase64) {
-      loadingStatusText.textContent = 'Cargando PDF vectorial nativo nítido...';
+      loadingStatusText.textContent = 'Procesando PDF vectorial nativo nítido...';
       const binaryString = atob(captureData.pdfBase64);
       const len = binaryString.length;
       let rawBytes = new Uint8Array(len);
       for (let i = 0; i < len; i++) rawBytes[i] = binaryString.charCodeAt(i);
+
+      if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
+        rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
+      }
+
       captureData.cdpBytes = rawBytes;
       captureData.pdfBytes = rawBytes;
 
@@ -208,6 +213,9 @@ document.addEventListener('DOMContentLoaded', async () => {
               const len = binaryString.length;
               let rawBytes = new Uint8Array(len);
               for (let i = 0; i < len; i++) rawBytes[i] = binaryString.charCodeAt(i);
+              if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
+                rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
+              }
               captureData.cdpBytes = rawBytes;
             }
             captureData.pdfBytes = captureData.cdpBytes || captureData.rasterHdBytes;
