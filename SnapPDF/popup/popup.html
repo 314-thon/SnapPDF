@@ -11,11 +11,17 @@
       <div class="logo-group">
         <img src="../icons/icon-48.png" class="logo-icon" alt="SnapPDF">
         <div>
-          <h1 class="title">SnapPDF</h1>
-          <span class="subtitle">PDF Vectorial Nativo</span>
+          <h1 class="title" data-i18n="title">SnapPDF</h1>
+          <span class="subtitle" data-i18n="subtitle">PDF Vectorial y HD</span>
         </div>
       </div>
-      <span class="badge-v3">v2.0</span>
+      <div class="lang-flags-bar" id="flagsBar">
+        <button class="flag-btn" data-lang="es" title="Español (Argentina)">🇦🇷</button>
+        <button class="flag-btn" data-lang="en" title="English (US)">🇺🇸</button>
+        <button class="flag-btn" data-lang="pt" title="Português (Brasil)">🇧🇷</button>
+        <button class="flag-btn" data-lang="ja" title="日本語">🇯🇵</button>
+        <button class="flag-btn" data-lang="ko" title="한국어">🇰🇷</button>
+      </div>
     </header>
 
     <div class="actions-list">
@@ -27,8 +33,8 @@
           </svg>
         </div>
         <div class="btn-text">
-          <span class="btn-title">Capturar Recuadro</span>
-          <span class="btn-desc">Arrastra para recortar en PDF vectorial</span>
+          <span class="btn-title" data-i18n="btnSelectionTitle">Capturar Recuadro</span>
+          <span class="btn-desc" data-i18n="btnSelectionDesc">Arrastrá para recortar en PDF o PNG</span>
         </div>
         <kbd class="shortcut">Ctrl+Shift+S</kbd>
       </button>
@@ -41,8 +47,8 @@
           </svg>
         </div>
         <div class="btn-text">
-          <span class="btn-title">Página Completa</span>
-          <span class="btn-desc">PDF continuo sin cortes ni pixelado</span>
+          <span class="btn-title" data-i18n="btnFullpageTitle">Página Completa</span>
+          <span class="btn-desc" data-i18n="btnFullpageDesc">PDF continuo con links y sin pixelado</span>
         </div>
         <kbd class="shortcut">Ctrl+Shift+E</kbd>
       </button>
@@ -55,8 +61,8 @@
           </svg>
         </div>
         <div class="btn-text">
-          <span class="btn-title">Vista Actual</span>
-          <span class="btn-desc">Captura instantánea en PDF</span>
+          <span class="btn-title" data-i18n="btnVisibleTitle">Vista Actual</span>
+          <span class="btn-desc" data-i18n="btnVisibleDesc">Captura rápida en PDF de lo que ves</span>
         </div>
         <kbd class="shortcut">Ctrl+Shift+X</kbd>
       </button>
@@ -65,11 +71,12 @@
     <footer class="footer">
       <div class="feature-tag">
         <span class="dot"></span>
-        ✨ Motor Skia: Zoom Infinito • Sin Pixelado
+        <span data-i18n="featureTag">Motor Ultra HD • Links Activos</span>
       </div>
     </footer>
   </div>
 
+  <script src="../lib/i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

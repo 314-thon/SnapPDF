@@ -38,6 +38,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   let captureData = null;
   let activePdfBlob = null;
   let activePdfUrl = null;
+  let currentLang = 'es';
+
+  // Inicializar i18n
+  currentLang = await getCurrentLanguage();
+  applyTranslations(currentLang);
+
+  const previewFlagButtons = document.querySelectorAll('#previewFlagsBar .flag-btn');
+  previewFlagButtons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const selected = btn.dataset.lang;
+      currentLang = selected;
+      await setLanguage(selected);
+      if (normalizedWords) {
+        statWordsEl.textContent = getTranslation(currentLang, 'wordsText', { words: normalizedWords.length.toLocaleString() });
+      }
+    });
+  });
 
   let normalizedWords = [];
   let normalizedLinks = [];
@@ -224,7 +241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     statDimensionsEl.textContent = `${finalWidth} × ${finalHeight} px`;
-    statWordsEl.textContent = `${normalizedWords.length.toLocaleString()} palabras (Texto & Emojis)`;
+    statWordsEl.textContent = getTranslation(currentLang, 'wordsText', { words: normalizedWords.length.toLocaleString() });
     updateHighlightOverlays();
   }
 
@@ -598,27 +615,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (btnCopyLinks) {
         btnCopyLinks.classList.add('btn-success');
+        const originalHtml = btnCopyLinks.innerHTML;
+        const copiedText = getTranslation(currentLang, 'linksCopied');
         btnCopyLinks.innerHTML = `
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
-          <span>¡Links Copiados!</span>
+          <span>${copiedText}</span>
         `;
         setTimeout(() => {
           btnCopyLinks.classList.remove('btn-success');
-          btnCopyLinks.innerHTML = `
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-            </svg>
-            <span>Copiar Links</span>
-          `;
+          btnCopyLinks.innerHTML = originalHtml;
         }, 2500);
       }
 
       if (notifyToast) {
         const count = uniqueUrls.length;
-        showCopyToast(`🔗 ¡${count} enlace${count > 1 ? 's' : ''} copiado${count > 1 ? 's' : ''} al portapapeles!`);
+        showCopyToast(getTranslation(currentLang, 'copiedLinksSuccess', { count }));
       }
       return true;
     } catch (err) {

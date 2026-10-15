@@ -87,7 +87,43 @@ body {
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+}
+
+.lang-flags-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(31, 41, 55, 0.7);
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid #374151;
+}
+
+.flag-btn {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: transform 0.15s ease, filter 0.15s ease, background-color 0.15s ease;
+  filter: grayscale(40%);
+  opacity: 0.75;
+}
+
+.flag-btn:hover {
+  transform: scale(1.15);
+  filter: grayscale(0%);
+  opacity: 1;
+}
+
+.flag-btn.active {
+  filter: grayscale(0%);
+  opacity: 1;
+  background: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.6);
 }
 
 .vector-badge {

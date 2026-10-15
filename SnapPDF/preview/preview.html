@@ -16,24 +16,33 @@
           <span class="logo-title">SnapPDF</span>
         </div>
         <div class="capture-info">
-          <h2 id="captureTitle" class="page-title">Cargando captura...</h2>
+          <h2 id="captureTitle" class="page-title" data-i18n="loadingCapture">Cargando captura...</h2>
           <span id="captureUrl" class="page-url"></span>
         </div>
       </div>
 
       <div class="topbar-right">
+        <!-- Banderitas de selección de idioma -->
+        <div class="lang-flags-bar" id="previewFlagsBar">
+          <button class="flag-btn" data-lang="es" title="Español (Argentina)">🇦🇷</button>
+          <button class="flag-btn" data-lang="en" title="English (US)">🇺🇸</button>
+          <button class="flag-btn" data-lang="pt" title="Português (Brasil)">🇧🇷</button>
+          <button class="flag-btn" data-lang="ja" title="日本語">🇯🇵</button>
+          <button class="flag-btn" data-lang="ko" title="한국어">🇰🇷</button>
+        </div>
+
         <div id="vectorBadge" class="vector-badge" style="display: none;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
           </svg>
-          PDF Vectorial Puro (Zoom Infinito)
+          <span data-i18n="vectorBadge">PDF de Alta Fidelidad (Vectorial)</span>
         </div>
 
         <div class="format-select-group" id="formatSelectGroup">
-          <label for="pdfLayoutSelect">Formato:</label>
+          <label for="pdfLayoutSelect" data-i18n="formatLabel">Formato:</label>
           <select id="pdfLayoutSelect" class="select-control">
-            <option value="continuous" selected>Página Continua (Ajuste Web Exacto)</option>
-            <option value="a4">Multipágina A4 (Estándar)</option>
+            <option value="continuous" selected data-i18n="optContinuous">Página Continua (Ajuste Web Exacto)</option>
+            <option value="a4" data-i18n="optA4">Multipágina A4 (Estándar)</option>
           </select>
         </div>
 
@@ -41,7 +50,7 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m4-5l5 5 5-5m-5 5V3"/>
           </svg>
-          Descargar PDF Vectorial
+          <span data-i18n="btnDownloadPdf">Descargar PDF</span>
         </button>
 
         <button id="btnCopyPng" class="btn btn-secondary" style="display: none;" title="Copiar imagen PNG al portapapeles (Ctrl+C)">
@@ -49,7 +58,7 @@
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
           </svg>
-          <span>Copiar PNG</span>
+          <span data-i18n="btnCopyPng">Copiar PNG</span>
         </button>
 
         <button id="btnCopyLinks" class="btn btn-secondary" style="display: none;" title="Copiar enlaces detectados (Ctrl+Shift+C)">
@@ -57,14 +66,14 @@
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
           </svg>
-          <span>Copiar Links</span>
+          <span data-i18n="btnCopyLinks">Copiar Links</span>
         </button>
 
         <button id="btnDownloadPng" class="btn btn-secondary" style="display: none;" title="Guardar imagen PNG en Descargas">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m-7-5l3 3 3-3m-3 3V3"/>
           </svg>
-          <span>Descargar PNG</span>
+          <span data-i18n="btnDownloadPng">Descargar PNG</span>
         </button>
       </div>
     </header>
@@ -73,89 +82,73 @@
     <main class="main-content">
       <!-- Barra lateral de estadísticas / detalles -->
       <aside class="sidebar">
-        <!-- Aviso si DevTools estaba abierto -->
-        <div id="devtoolsNotice" class="card devtools-notice" style="display: none;">
-          <div class="notice-header">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-            <h4>DevTools (F12) Estaba Abierto</h4>
-          </div>
-          <p>
-            Chromium restringe el acceso de depuración externa cuando DevTools ya está abierto en esa pestaña.
-            Para generar el <strong>PDF Vectorial Puro (Skia)</strong> con zoom infinito y fidelidad nativa, <strong>cierra DevTools (F12)</strong> antes de capturar.
-          </p>
-        </div>
-
         <div class="card">
-          <h3 class="card-title">Métricas de Captura</h3>
+          <h3 class="card-title" data-i18n="metricsTitle">Métricas de Captura</h3>
           <ul class="stats-list">
             <li>
-              <span class="stat-label">Tipo:</span>
+              <span class="stat-label" data-i18n="statTypeLabel">Tipo:</span>
               <span id="statType" class="stat-value">-</span>
             </li>
             <li>
-              <span class="stat-label">Motor:</span>
+              <span class="stat-label" data-i18n="statEngineLabel">Motor:</span>
               <span id="statEngine" class="stat-value highlight">-</span>
             </li>
             <li>
-              <span class="stat-label">Dimensiones:</span>
+              <span class="stat-label" data-i18n="statDimensionsLabel">Dimensiones:</span>
               <span id="statDimensions" class="stat-value">-</span>
             </li>
             <li id="statWordsRow">
-              <span class="stat-label">Texto / OCR:</span>
+              <span class="stat-label" data-i18n="statWordsLabel">Texto / Enlaces:</span>
               <span id="statWords" class="stat-value highlight">-</span>
             </li>
           </ul>
         </div>
 
         <div class="card" id="layersCard" style="display: none;">
-          <h3 class="card-title">Inspección de Capas</h3>
-          <p class="card-description">
-            Inspección de las cajas de texto y enlaces geométricos cosechados del DOM.
+          <h3 class="card-title" data-i18n="layersTitle">Inspección de Capas</h3>
+          <p class="card-description" data-i18n="layersDesc">
+            Visualizá las cajas de texto y los enlaces cosechados del DOM.
           </p>
           <div class="toggle-group">
             <label class="toggle-switch">
               <input type="checkbox" id="toggleTextOverlay">
               <span class="slider"></span>
             </label>
-            <span class="toggle-label">Resaltar palabras indexadas</span>
+            <span class="toggle-label" data-i18n="toggleWords">Resaltar palabras indexadas</span>
           </div>
           <div class="toggle-group">
             <label class="toggle-switch">
               <input type="checkbox" id="toggleLinkOverlay">
               <span class="slider"></span>
             </label>
-            <span class="toggle-label">Resaltar enlaces activos</span>
+            <span class="toggle-label" data-i18n="toggleLinks">Resaltar enlaces activos</span>
           </div>
         </div>
 
         <div class="card shortcuts-card">
-          <h3 class="card-title">Atajos de Teclado</h3>
+          <h3 class="card-title" data-i18n="shortcutsTitle">Atajos de Teclado</h3>
           <ul class="stats-list">
             <li>
-              <span class="stat-label">Copiar Imagen:</span>
+              <span class="stat-label" data-i18n="copyImageShortcut">Copiar Imagen:</span>
               <kbd class="shortcut-key">Ctrl + C</kbd>
             </li>
             <li>
-              <span class="stat-label">Copiar Links:</span>
+              <span class="stat-label" data-i18n="copyLinksShortcut">Copiar Links:</span>
               <kbd class="shortcut-key">Ctrl + Shift + C</kbd>
             </li>
             <li>
-              <span class="stat-label">Descargar PDF:</span>
+              <span class="stat-label" data-i18n="downloadPdfShortcut">Descargar PDF:</span>
               <kbd class="shortcut-key">Ctrl + S</kbd>
             </li>
           </ul>
         </div>
 
         <div class="card help-card">
-          <h4>✨ Ventajas del PDF Vectorial</h4>
-          <p>
-            • <strong>Zoom Infinito:</strong> Las fuentes y trazos nunca se pixelan.<br>
-            • <strong>Texto Nativo:</strong> Selecciona, copia y busca con <code>Ctrl + F</code> sin pérdida de formato.<br>
-            • <strong>Colores y Estilos:</strong> Reproducción Skia directa del motor de Edge/Chrome.
+          <h4 data-i18n="helpTitle">✨ Ventajas de SnapPDF</h4>
+          <p data-i18n="helpDesc">
+            • <strong>Enlaces Activos:</strong> Los links web se conservan clicables dentro del PDF.<br>
+            • <strong>Texto Nativo:</strong> Seleccioná, copiá y buscá con <code>Ctrl + F</code> sin pixelado.<br>
+            • <strong>100% Local:</strong> Procesamiento privado en tu navegador.
           </p>
         </div>
       </aside>
@@ -164,7 +157,7 @@
       <section class="viewport-area">
         <div id="loadingIndicator" class="loading-state">
           <div class="spinner"></div>
-          <p id="loadingStatusText">Procesando y generando documento PDF...</p>
+          <p id="loadingStatusText" data-i18n="loadingStatus">Procesando y generando documento PDF...</p>
         </div>
 
         <div id="previewContainer" class="preview-container" style="display: none;">
@@ -183,6 +176,7 @@
     </main>
   </div>
 
+  <script src="../lib/i18n.js"></script>
   <script src="preview.js"></script>
 </body>
 </html>
