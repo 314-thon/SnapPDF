@@ -116,7 +116,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         let vectorResult = null;
         if (senderTab?.id) {
           try {
-            vectorResult = await printTabToVectorPdf(senderTab);
+            vectorResult = await printTabToVectorPdf(senderTab, request.payload.cropBox);
           } catch (e) {
             console.warn('[SnapPDF Background] Error generando PDF vectorial para recuadro:', e);
           }
@@ -177,15 +177,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab?.id) {
           await ensureContentScript(tab.id);
-          let vectorResult = null;
-          try {
-            vectorResult = await printTabToVectorPdf(tab);
-          } catch (e) {
-            console.warn('[SnapPDF Background] Falló printTabToVectorPdf en visible:', e);
-          }
-
           const response = await chrome.tabs.sendMessage(tab.id, { action: 'run-fallback-visible' });
           if (response && response.status === 'completed') {
+            let vectorResult = null;
+            try {
+              vectorResult = await printTabToVectorPdf(tab, response.payload.cropBox);
+            } catch (e) {
+              console.warn('[SnapPDF Background] Falló printTabToVectorPdf en visible:', e);
+            }
+
             await openPreview({
               isVector: !!vectorResult,
               pdfBase64: vectorResult?.pdfBase64,
@@ -208,35 +208,43 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
-// Generación de PDF vectorial nativo mediante CDP (Page.printToPDF)
-async function printTabToVectorPdf(tab) {
+// Generación de PDF vectorial nativo mediante CDP (Page.printToPDF) con recorte por @page
+async function printTabToVectorPdf(tab, cropBox = null) {
   const target = { tabId: tab.id };
+  let appliedCrop = false;
   try {
+    if (cropBox && cropBox.width > 0 && cropBox.height > 0) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'apply-print-crop', cropBox });
+        appliedCrop = true;
+      } catch (cropErr) {
+        console.warn('[SnapPDF Background] No se pudo aplicar print crop:', cropErr);
+      }
+    }
+
     await chrome.debugger.attach(target, '1.3');
 
     // Habilitar Page domain
     await chrome.debugger.sendCommand(target, 'Page.enable');
 
-    // Obtener dimensiones del layout de la página
-    let widthInches = 8.27; // A4 por defecto (ancho en pulgadas)
-    let heightInches = 11.69; // A4 por defecto (alto en pulgadas)
-    let widthPx = 1200;
-    let heightPx = 1600;
+    let widthPx = cropBox?.width || 1200;
+    let heightPx = cropBox?.height || 1600;
 
-    try {
-      const layoutMetrics = await chrome.debugger.sendCommand(target, 'Page.getLayoutMetrics');
-      if (layoutMetrics && layoutMetrics.contentSize) {
-        widthPx = Math.ceil(layoutMetrics.contentSize.width) || 1200;
-        heightPx = Math.ceil(layoutMetrics.contentSize.height) || 1600;
-        // 96 DPI: convertir píxeles CSS a pulgadas para que quede en una página continua continua
-        widthInches = +(widthPx / 96).toFixed(2);
-        heightInches = +(heightPx / 96).toFixed(2);
+    if (!cropBox) {
+      try {
+        const layoutMetrics = await chrome.debugger.sendCommand(target, 'Page.getLayoutMetrics');
+        if (layoutMetrics && layoutMetrics.contentSize) {
+          widthPx = Math.ceil(layoutMetrics.contentSize.width) || 1200;
+          heightPx = Math.ceil(layoutMetrics.contentSize.height) || 1600;
+        }
+      } catch (metricsErr) {
+        console.warn('[SnapPDF] No se pudo obtener métricas de layout, usando estándar:', metricsErr);
       }
-    } catch (metricsErr) {
-      console.warn('[SnapPDF] No se pudo obtener métricas de layout, usando estándar:', metricsErr);
     }
 
-    // Parámetros de impresión vectorial continua optimizados para menor tamaño
+    const widthInches = +(widthPx / 96).toFixed(2);
+    const heightInches = +(heightPx / 96).toFixed(2);
+
     const printOptions = {
       landscape: false,
       displayHeaderFooter: false,
@@ -248,10 +256,14 @@ async function printTabToVectorPdf(tab) {
       marginBottom: 0,
       marginLeft: 0,
       marginRight: 0,
-      preferCSSPageSize: false,
+      preferCSSPageSize: true,
       generateTaggedPDF: false,
       generateDocumentOutline: false
     };
+
+    if (cropBox) {
+      printOptions.pageRanges = '1';
+    }
 
     const pdfResult = await chrome.debugger.sendCommand(target, 'Page.printToPDF', printOptions);
     await chrome.debugger.detach(target);
@@ -267,5 +279,11 @@ async function printTabToVectorPdf(tab) {
     } catch (e) {}
     console.error('[SnapPDF] Error en printTabToVectorPdf:', err);
     throw err;
+  } finally {
+    if (appliedCrop) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'remove-print-crop' });
+      } catch (cleanErr) {}
+    }
   }
 }

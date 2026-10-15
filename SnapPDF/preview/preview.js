@@ -162,27 +162,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       layersCard.style.display = 'none';
     }
 
-    // Generar el PDF vectorial fiel por defecto (con fotos, fondos y texto vectorial nítido)
-    loadingStatusText.textContent = 'Generando PDF vectorial fiel de alta fidelidad...';
-    const hybridVectorBytes = await generateFallbackSearchablePdf();
-    captureData.rasterHdBytes = hybridVectorBytes;
-    captureData.pdfBytes = hybridVectorBytes;
+    // Priorizar PDF vectorial nativo nítido de Chromium si está disponible
+    if (captureData.isVector && captureData.pdfBase64) {
+      loadingStatusText.textContent = 'Cargando PDF vectorial nativo nítido...';
+      const binaryString = atob(captureData.pdfBase64);
+      const len = binaryString.length;
+      let rawBytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) rawBytes[i] = binaryString.charCodeAt(i);
+      captureData.cdpBytes = rawBytes;
+      captureData.pdfBytes = rawBytes;
 
-    activePdfBlob = new Blob([hybridVectorBytes], { type: 'application/pdf' });
+      statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito)';
+      vectorBadge.style.display = 'inline-flex';
+      vectorBadge.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        PDF Vectorial Nativo
+      `;
+      if (pdfEngineSelect) pdfEngineSelect.value = 'vector-native';
+    } else {
+      loadingStatusText.textContent = 'Generando PDF fiel de alta definición...';
+      const hybridVectorBytes = await generateFallbackSearchablePdf();
+      captureData.rasterHdBytes = hybridVectorBytes;
+      captureData.pdfBytes = hybridVectorBytes;
+      statEngineEl.textContent = '📸 Fiel Buscable (~20KB)';
+      if (pdfEngineSelect) pdfEngineSelect.value = 'vector-hybrid';
+    }
+
+    activePdfBlob = new Blob([captureData.pdfBytes], { type: 'application/pdf' });
     activePdfUrl = URL.createObjectURL(activePdfBlob);
-
-    statEngineEl.textContent = '🎯 Fiel Buscable (Fotos + Fondos + Texto Copiable)';
-    vectorBadge.style.display = 'inline-flex';
-    vectorBadge.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-      </svg>
-      PDF Fiel Buscable
-    `;
 
     // Escuchar cambio de modo en el selector de motor
     if (pdfEngineSelect) {
-      pdfEngineSelect.value = 'vector-hybrid';
       pdfEngineSelect.addEventListener('change', async () => {
         btnDownloadPdf.disabled = true;
         const prevText = btnDownloadPdf.innerHTML;
@@ -190,31 +202,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         try {
           const mode = pdfEngineSelect.value;
-          if (mode === 'vector-hybrid' || mode === 'raster-hd') {
-            if (!captureData.rasterHdBytes) {
-              captureData.rasterHdBytes = await generateFallbackSearchablePdf();
-            }
-            captureData.pdfBytes = captureData.rasterHdBytes;
-            statEngineEl.textContent = '🎯 Fiel Buscable (Fotos + Fondos + Texto Copiable)';
-          } else if (mode === 'vector-clean') {
-            if (!captureData.cleanVectorBytes) {
-              captureData.cleanVectorBytes = await generateCleanVectorPdf();
-            }
-            captureData.pdfBytes = captureData.cleanVectorBytes;
-            statEngineEl.textContent = '⚡ Texto Minimalista (Solo Texto ~4KB)';
-          } else if (mode === 'cdp-full') {
+          if (mode === 'vector-native' || mode === 'cdp-full') {
             if (!captureData.cdpBytes && captureData.isVector && captureData.pdfBase64) {
               const binaryString = atob(captureData.pdfBase64);
               const len = binaryString.length;
               let rawBytes = new Uint8Array(len);
               for (let i = 0; i < len; i++) rawBytes[i] = binaryString.charCodeAt(i);
-              if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
-                rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
-              }
               captureData.cdpBytes = rawBytes;
             }
             captureData.pdfBytes = captureData.cdpBytes || captureData.rasterHdBytes;
-            statEngineEl.textContent = '🌐 CDP Chromium (Completo con assets)';
+            statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito)';
+          } else if (mode === 'vector-hybrid' || mode === 'raster-hd') {
+            if (!captureData.rasterHdBytes) {
+              captureData.rasterHdBytes = await generateFallbackSearchablePdf();
+            }
+            captureData.pdfBytes = captureData.rasterHdBytes;
+            statEngineEl.textContent = '📸 Fiel Buscable (~20KB)';
+          } else if (mode === 'vector-clean') {
+            if (!captureData.cleanVectorBytes) {
+              captureData.cleanVectorBytes = await generateCleanVectorPdf();
+            }
+            captureData.pdfBytes = captureData.cleanVectorBytes;
+            statEngineEl.textContent = '📝 Texto Minimalista (~4KB)';
           }
 
           let finalBytes = captureData.pdfBytes;
