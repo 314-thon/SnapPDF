@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SnapPDF - Vista Previa y Exportación</title>
+  <link rel="stylesheet" href="preview.css">
+  <script src="../lib/pdf-lib.min.js"></script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Barra Superior -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo-badge">
+          <img src="../icons/icon-48.png" class="logo-icon" alt="SnapPDF">
+          <span class="logo-title">SnapPDF</span>
+        </div>
+        <div class="capture-info">
+          <h2 id="captureTitle" class="page-title">Cargando captura...</h2>
+          <span id="captureUrl" class="page-url"></span>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div id="vectorBadge" class="vector-badge" style="display: none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          PDF Vectorial Puro (Zoom Infinito)
+        </div>
+
+        <div class="format-select-group" id="formatSelectGroup">
+          <label for="pdfLayoutSelect">Formato:</label>
+          <select id="pdfLayoutSelect" class="select-control">
+            <option value="continuous" selected>Página Continua (Ajuste Web Exacto)</option>
+            <option value="a4">Multipágina A4 (Estándar)</option>
+          </select>
+        </div>
+
+        <button id="btnDownloadPdf" class="btn btn-primary" disabled>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m4-5l5 5 5-5m-5 5V3"/>
+          </svg>
+          Descargar PDF Vectorial
+        </button>
+
+        <button id="btnCopyPng" class="btn btn-secondary" style="display: none;" title="Copiar imagen PNG al portapapeles (Ctrl+C)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          <span>Copiar PNG</span>
+        </button>
+
+        <button id="btnCopyLinks" class="btn btn-secondary" style="display: none;" title="Copiar enlaces detectados (Ctrl+Shift+C)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          <span>Copiar Links</span>
+        </button>
+
+        <button id="btnDownloadPng" class="btn btn-secondary" style="display: none;" title="Guardar imagen PNG en Descargas">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m-7-5l3 3 3-3m-3 3V3"/>
+          </svg>
+          <span>Descargar PNG</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="main-content">
+      <!-- Barra lateral de estadísticas / detalles -->
+      <aside class="sidebar">
+        <!-- Aviso si DevTools estaba abierto -->
+        <div id="devtoolsNotice" class="card devtools-notice" style="display: none;">
+          <div class="notice-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <h4>DevTools (F12) Estaba Abierto</h4>
+          </div>
+          <p>
+            Chromium restringe el acceso de depuración externa cuando DevTools ya está abierto en esa pestaña.
+            Para generar el <strong>PDF Vectorial Puro (Skia)</strong> con zoom infinito y fidelidad nativa, <strong>cierra DevTools (F12)</strong> antes de capturar.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Métricas de Captura</h3>
+          <ul class="stats-list">
+            <li>
+              <span class="stat-label">Tipo:</span>
+              <span id="statType" class="stat-value">-</span>
+            </li>
+            <li>
+              <span class="stat-label">Motor:</span>
+              <span id="statEngine" class="stat-value highlight">-</span>
+            </li>
+            <li>
+              <span class="stat-label">Dimensiones:</span>
+              <span id="statDimensions" class="stat-value">-</span>
+            </li>
+            <li id="statWordsRow">
+              <span class="stat-label">Texto / OCR:</span>
+              <span id="statWords" class="stat-value highlight">-</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="card" id="layersCard" style="display: none;">
+          <h3 class="card-title">Inspección de Capas</h3>
+          <p class="card-description">
+            Inspección de las cajas de texto y enlaces geométricos cosechados del DOM.
+          </p>
+          <div class="toggle-group">
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggleTextOverlay">
+              <span class="slider"></span>
+            </label>
+            <span class="toggle-label">Resaltar palabras indexadas</span>
+          </div>
+          <div class="toggle-group">
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggleLinkOverlay">
+              <span class="slider"></span>
+            </label>
+            <span class="toggle-label">Resaltar enlaces activos</span>
+          </div>
+        </div>
+
+        <div class="card shortcuts-card">
+          <h3 class="card-title">Atajos de Teclado</h3>
+          <ul class="stats-list">
+            <li>
+              <span class="stat-label">Copiar Imagen:</span>
+              <kbd class="shortcut-key">Ctrl + C</kbd>
+            </li>
+            <li>
+              <span class="stat-label">Copiar Links:</span>
+              <kbd class="shortcut-key">Ctrl + Shift + C</kbd>
+            </li>
+            <li>
+              <span class="stat-label">Descargar PDF:</span>
+              <kbd class="shortcut-key">Ctrl + S</kbd>
+            </li>
+          </ul>
+        </div>
+
+        <div class="card help-card">
+          <h4>✨ Ventajas del PDF Vectorial</h4>
+          <p>
+            • <strong>Zoom Infinito:</strong> Las fuentes y trazos nunca se pixelan.<br>
+            • <strong>Texto Nativo:</strong> Selecciona, copia y busca con <code>Ctrl + F</code> sin pérdida de formato.<br>
+            • <strong>Colores y Estilos:</strong> Reproducción Skia directa del motor de Edge/Chrome.
+          </p>
+        </div>
+      </aside>
+
+      <!-- Área de visualización -->
+      <section class="viewport-area">
+        <div id="loadingIndicator" class="loading-state">
+          <div class="spinner"></div>
+          <p id="loadingStatusText">Procesando y generando documento PDF...</p>
+        </div>
+
+        <div id="previewContainer" class="preview-container" style="display: none;">
+          <!-- Visor PDF Vectorial NATIVO embebido -->
+          <div id="pdfViewerWrapper" class="pdf-viewer-wrapper" style="display: none;">
+            <iframe id="pdfPreviewFrame" class="pdf-frame" title="Visor de PDF Vectorial"></iframe>
+          </div>
+
+          <!-- Visor Canvas Raster Fallback -->
+          <div id="canvasWrapper" class="canvas-wrapper" style="display: none;">
+            <canvas id="mainCanvas"></canvas>
+            <div id="highlightLayer" class="highlight-layer"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="preview.js"></script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SnapPDF</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="header">
+      <div class="logo-group">
+        <img src="../icons/icon-48.png" class="logo-icon" alt="SnapPDF">
+        <div>
+          <h1 class="title">SnapPDF</h1>
+          <span class="subtitle">PDF Vectorial Nativo</span>
+        </div>
+      </div>
+      <span class="badge-v3">v2.0</span>
+    </header>
+
+    <div class="actions-list">
+      <button id="btnSelection" class="action-btn primary">
+        <div class="btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 3H3v2m0 4v2m0 4v2m0 4v2h2m4 0h2m4 0h2m4 0h2v-2m0-4v-2m0-4v-2m0-4v-2h-2m-4 0h-2m-4 0H9"/>
+            <rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" fill-opacity="0.15"/>
+          </svg>
+        </div>
+        <div class="btn-text">
+          <span class="btn-title">Capturar Recuadro</span>
+          <span class="btn-desc">Arrastra para recortar en PDF vectorial</span>
+        </div>
+        <kbd class="shortcut">Ctrl+Shift+S</kbd>
+      </button>
+
+      <button id="btnFullpage" class="action-btn">
+        <div class="btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="4" y="2" width="16" height="20" rx="2"/>
+            <path d="M12 6v12m-3-3l3 3 3-3"/>
+          </svg>
+        </div>
+        <div class="btn-text">
+          <span class="btn-title">Página Completa</span>
+          <span class="btn-desc">PDF continuo sin cortes ni pixelado</span>
+        </div>
+        <kbd class="shortcut">Ctrl+Shift+E</kbd>
+      </button>
+
+      <button id="btnVisible" class="action-btn">
+        <div class="btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+        <div class="btn-text">
+          <span class="btn-title">Vista Actual</span>
+          <span class="btn-desc">Captura instantánea en PDF</span>
+        </div>
+        <kbd class="shortcut">Ctrl+Shift+X</kbd>
+      </button>
+    </div>
+
+    <footer class="footer">
+      <div class="feature-tag">
+        <span class="dot"></span>
+        ✨ Motor Skia: Zoom Infinito • Sin Pixelado
+      </div>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# Dependencias y temporales
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# Extracción de referencia previa (no parte de la extensión)
+fireshot_extracted/
