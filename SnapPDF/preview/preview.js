@@ -50,28 +50,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
-  function updateEngineOptionLabels() {
+  function updateEngineOptionLabels(lang = currentLang) {
     if (!pdfEngineSelect) return;
 
     const optClean = pdfEngineSelect.querySelector('option[value="vector-clean"]');
     const optHybrid = pdfEngineSelect.querySelector('option[value="vector-hybrid"]');
     const optNative = pdfEngineSelect.querySelector('option[value="vector-native"]');
 
+    const cleanTitle = getTranslation(lang, 'engineVectorClean');
+    const hybridTitle = getTranslation(lang, 'engineVectorHybrid');
+    const nativeTitle = getTranslation(lang, 'engineVectorNative');
+
     if (optClean) {
       const sizeStr = captureData?.cleanVectorBytes ? ` (${formatBytes(captureData.cleanVectorBytes.length)})` : '';
-      optClean.textContent = `⚡ Vectorial Puro Fiel${sizeStr}`;
+      optClean.textContent = `${cleanTitle}${sizeStr}`;
     }
     if (optHybrid) {
       const sizeStr = captureData?.rasterHdBytes ? ` (${formatBytes(captureData.rasterHdBytes.length)})` : '';
-      optHybrid.textContent = `📸 Fiel Buscable HD${sizeStr}`;
+      optHybrid.textContent = `${hybridTitle}${sizeStr}`;
     }
     if (optNative) {
       const sizeStr = captureData?.cdpBytes ? ` (${formatBytes(captureData.cdpBytes.length)})` : '';
-      optNative.textContent = `🖨️ Chromium CDP Print${sizeStr}`;
+      optNative.textContent = `${nativeTitle}${sizeStr}`;
     }
 
     if (activePdfBlob && statPdfSizeEl) {
       statPdfSizeEl.textContent = formatBytes(activePdfBlob.size);
+    }
+
+    // Actualizar tipo de captura en el panel lateral según el idioma
+    if (captureData && statTypeEl) {
+      const typeKeyMap = {
+        selection: 'typeSelection',
+        fullpage: 'typeFullpage',
+        visible: 'typeVisible',
+        vector: 'typeVector'
+      };
+      const key = typeKeyMap[captureData.type];
+      statTypeEl.textContent = key ? getTranslation(lang, key) : captureData.type;
+    }
+
+    // Actualizar motor activo en el panel lateral según el idioma
+    if (statEngineEl && pdfEngineSelect) {
+      const currentMode = pdfEngineSelect.value;
+      let activeTitle = cleanTitle;
+      let activeBytes = captureData?.pdfBytes?.length || 0;
+      if (currentMode === 'vector-hybrid') {
+        activeTitle = hybridTitle;
+      } else if (currentMode === 'vector-native') {
+        activeTitle = nativeTitle;
+      }
+      const sizeStr = activeBytes > 0 ? ` (${formatBytes(activeBytes)})` : '';
+      statEngineEl.textContent = `${activeTitle}${sizeStr}`;
     }
   }
 
@@ -88,6 +118,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (normalizedWords) {
         statWordsEl.textContent = getTranslation(currentLang, 'wordsText', { words: normalizedWords.length.toLocaleString() });
       }
+      updateEngineOptionLabels(currentLang);
     });
   });
 
@@ -154,13 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   captureTitleEl.textContent = captureData.title || 'Captura Web';
   captureUrlEl.textContent = captureData.url || '';
 
-  const typeLabels = {
-    selection: 'Recuadro Seleccionado',
-    fullpage: 'Página Completa',
-    visible: 'Vista Visible',
-    vector: 'PDF Vectorial Nativo'
-  };
-  statTypeEl.textContent = typeLabels[captureData.type] || captureData.type;
+  updateEngineOptionLabels(currentLang);
 
   if (formatSelectGroup) {
     formatSelectGroup.style.display = (captureData.type === 'fullpage' || captureData.type === 'vector') ? 'flex' : 'none';
