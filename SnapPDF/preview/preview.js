@@ -54,16 +54,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!pdfEngineSelect) return;
 
     const optClean = pdfEngineSelect.querySelector('option[value="vector-clean"]');
+    const optCompressed = pdfEngineSelect.querySelector('option[value="vector-compressed"]');
     const optHybrid = pdfEngineSelect.querySelector('option[value="vector-hybrid"]');
     const optNative = pdfEngineSelect.querySelector('option[value="vector-native"]');
 
     const cleanTitle = getTranslation(lang, 'engineVectorClean');
+    const compressedTitle = getTranslation(lang, 'engineVectorCompressed');
     const hybridTitle = getTranslation(lang, 'engineVectorHybrid');
     const nativeTitle = getTranslation(lang, 'engineVectorNative');
 
     if (optClean) {
       const sizeStr = captureData?.cleanVectorBytes ? ` (${formatBytes(captureData.cleanVectorBytes.length)})` : '';
       optClean.textContent = `${cleanTitle}${sizeStr}`;
+    }
+    if (optCompressed) {
+      const sizeStr = captureData?.compressedVectorBytes ? ` (${formatBytes(captureData.compressedVectorBytes.length)})` : '';
+      optCompressed.textContent = `${compressedTitle}${sizeStr}`;
     }
     if (optHybrid) {
       const sizeStr = captureData?.rasterHdBytes ? ` (${formatBytes(captureData.rasterHdBytes.length)})` : '';
@@ -95,7 +101,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       const currentMode = pdfEngineSelect.value;
       let activeTitle = cleanTitle;
       let activeBytes = captureData?.pdfBytes?.length || 0;
-      if (currentMode === 'vector-hybrid') {
+      if (currentMode === 'vector-compressed') {
+        activeTitle = compressedTitle;
+      } else if (currentMode === 'vector-hybrid') {
         activeTitle = hybridTitle;
       } else if (currentMode === 'vector-native') {
         activeTitle = nativeTitle;
@@ -236,18 +244,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Habilitar o deshabilitar opción vector-native en el dropdown según disponibilidad
+    // Habilitar o deshabilitar opciones en el dropdown según disponibilidad
     if (pdfEngineSelect) {
       const nativeOpt = pdfEngineSelect.querySelector('option[value="vector-native"]');
       if (nativeOpt) {
         nativeOpt.disabled = !captureData.isVector || !captureData.pdfBase64;
       }
+      const hasWords = normalizedWords && normalizedWords.length > 0;
+      const cleanOpt = pdfEngineSelect.querySelector('option[value="vector-clean"]');
+      if (cleanOpt) cleanOpt.disabled = !hasWords;
+      const compressedOpt = pdfEngineSelect.querySelector('option[value="vector-compressed"]');
+      if (compressedOpt) compressedOpt.disabled = !hasWords;
     }
 
     // Priorizar motor Vectorial Puro Fiel si hay palabras cosechadas
     if (normalizedWords && normalizedWords.length > 0) {
       loadingStatusText.textContent = 'Generando PDF vectorial puro fiel...';
-      const cleanVectorBytes = await generateCleanVectorPdf();
+      const cleanVectorBytes = await generateCleanVectorPdf(false);
       captureData.cleanVectorBytes = cleanVectorBytes;
       captureData.pdfBytes = cleanVectorBytes;
 
@@ -283,6 +296,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Calcular de fondo los otros motores para que el desplegable muestre los pesos reales de todos
     setTimeout(async () => {
       try {
+        if (normalizedWords && normalizedWords.length > 0 && !captureData.compressedVectorBytes) {
+          captureData.compressedVectorBytes = await generateCleanVectorPdf(true);
+          updateEngineOptionLabels();
+        }
         if (!captureData.rasterHdBytes && hasImagePayload) {
           captureData.rasterHdBytes = await generateFallbackSearchablePdf();
           updateEngineOptionLabels();
@@ -303,16 +320,19 @@ document.addEventListener('DOMContentLoaded', async () => {
           const mode = pdfEngineSelect.value;
           if (mode === 'vector-clean') {
             if (!captureData.cleanVectorBytes) {
-              captureData.cleanVectorBytes = await generateCleanVectorPdf();
+              captureData.cleanVectorBytes = await generateCleanVectorPdf(false);
             }
             captureData.pdfBytes = captureData.cleanVectorBytes;
-            statEngineEl.textContent = `⚡ Vectorial Puro Fiel (${formatBytes(captureData.pdfBytes.length)})`;
+          } else if (mode === 'vector-compressed') {
+            if (!captureData.compressedVectorBytes) {
+              captureData.compressedVectorBytes = await generateCleanVectorPdf(true);
+            }
+            captureData.pdfBytes = captureData.compressedVectorBytes;
           } else if (mode === 'vector-hybrid' || mode === 'raster-hd') {
             if (!captureData.rasterHdBytes) {
               captureData.rasterHdBytes = await generateFallbackSearchablePdf();
             }
             captureData.pdfBytes = captureData.rasterHdBytes;
-            statEngineEl.textContent = `📸 Fiel Buscable HD (${formatBytes(captureData.pdfBytes.length)})`;
           } else if (mode === 'vector-native' || mode === 'cdp-full') {
             if (!captureData.cdpBytes && captureData.isVector && captureData.pdfBase64) {
               const binaryString = atob(captureData.pdfBase64);
@@ -325,7 +345,6 @@ document.addEventListener('DOMContentLoaded', async () => {
               captureData.cdpBytes = rawBytes;
             }
             captureData.pdfBytes = captureData.cdpBytes || captureData.rasterHdBytes;
-            statEngineEl.textContent = `🖨️ Chromium CDP Print (${formatBytes(captureData.pdfBytes.length)})`;
           }
 
           let finalBytes = captureData.pdfBytes;
@@ -983,9 +1002,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     return await pdfDoc.save({ useObjectStreams: true });
   }
 
-  // Generador de PDF Vectorial Puro Fiel (~50KB)
+  // Generador de PDF Vectorial Puro Fiel (~50KB) o Vectorial Ligero 50% (~15-20KB)
   // Fondo real, imágenes/avatares del post incrustados y texto nativo 100% vectorial
-  async function generateCleanVectorPdf() {
+  async function generateCleanVectorPdf(isCompressed = false) {
     const { PDFDocument, StandardFonts, rgb, PDFString, PDFName } = PDFLib;
     const pdfDoc = await PDFDocument.create();
     const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -1059,12 +1078,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
       }
 
-      // Incrustar el lienzo gráfico: PNG lossless para nitidez absoluta o JPEG al 94% para lienzos gigantes
-      const isHuge = (mainCanvas.width * mainCanvas.height > 1800000);
-      const mimeType = isHuge ? 'image/jpeg' : 'image/png';
-      const imgDataUrl = bgCanvas.toDataURL(mimeType, 0.94);
-      const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
-      const embeddedBg = isHuge ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+      // Incrustar el lienzo gráfico: JPEG al 50% para modo ligero, o PNG lossless / JPEG al 94% para modo fiel
+      let embeddedBg;
+      if (isCompressed) {
+        const imgDataUrl = bgCanvas.toDataURL('image/jpeg', 0.50);
+        const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
+        embeddedBg = await pdfDoc.embedJpg(imgBytes);
+      } else {
+        const isHuge = (mainCanvas.width * mainCanvas.height > 1800000);
+        const mimeType = isHuge ? 'image/jpeg' : 'image/png';
+        const imgDataUrl = bgCanvas.toDataURL(mimeType, 0.94);
+        const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
+        embeddedBg = isHuge ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+      }
 
       page.drawImage(embeddedBg, {
         x: 0,
