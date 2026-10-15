@@ -40,7 +40,42 @@
     };
   }
 
-  function scrollToCoords(x, y) {
+  function getMainScrollTarget() {
+    const docHeight = Math.max(
+      document.documentElement ? document.documentElement.scrollHeight : 0,
+      document.body ? document.body.scrollHeight : 0
+    );
+    if (docHeight > window.innerHeight + 100) {
+      return { isWindow: true, el: window, scrollHeight: docHeight };
+    }
+
+    let bestEl = null;
+    let bestHeight = 0;
+    const candidates = document.querySelectorAll('main, [role="main"], article, infinite-scroller, div, section');
+    for (const el of candidates) {
+      const style = window.getComputedStyle(el);
+      const overflowY = style.overflowY;
+      if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 100) {
+        if (el.scrollHeight > bestHeight) {
+          bestHeight = el.scrollHeight;
+          bestEl = el;
+        }
+      }
+    }
+
+    if (bestEl) {
+      return { isWindow: false, el: bestEl, scrollHeight: bestHeight };
+    }
+
+    return { isWindow: true, el: window, scrollHeight: docHeight };
+  }
+
+  function scrollToCoords(x, y, targetEl = null) {
+    if (targetEl && targetEl !== window && targetEl !== document.documentElement && targetEl !== document.body && targetEl !== document.scrollingElement) {
+      targetEl.scrollLeft = x;
+      targetEl.scrollTop = y;
+      return;
+    }
     try {
       window.scrollTo({ left: x, top: y, behavior: 'instant' });
     } catch (e) {
@@ -67,8 +102,8 @@
       return rects && rects.length > 0;
     }
 
-    static harvest(bounds = null) {
-      const scroll = getScrollOffset();
+    static harvest(bounds = null, customScroll = null) {
+      const scroll = customScroll || getScrollOffset();
       const words = [];
       const links = [];
 
@@ -303,11 +338,13 @@
       this.activePointerId = null;
       this.autoScrollTimer = null;
       this.currentDocRect = null;
+      this.activeScrollContainer = null;
 
       this.onPointerDown = this.onPointerDown.bind(this);
       this.onPointerMove = this.onPointerMove.bind(this);
       this.onPointerUp = this.onPointerUp.bind(this);
       this.onScroll = this.onScroll.bind(this);
+      this.onWheel = this.onWheel.bind(this);
       this.onKeyDown = this.onKeyDown.bind(this);
     }
 
@@ -388,8 +425,47 @@
       window.addEventListener('pointerup', this.onPointerUp, { passive: false });
       window.addEventListener('pointercancel', this.onPointerUp, { passive: false });
 
-      window.addEventListener('scroll', this.onScroll, { passive: true });
+      window.addEventListener('wheel', this.onWheel, { passive: false, capture: true });
+      window.addEventListener('scroll', this.onScroll, { passive: true, capture: true });
       window.addEventListener('keydown', this.onKeyDown, true);
+    }
+
+    findActiveScrollContainer(clientX, clientY) {
+      let el = null;
+      if (this.overlay) {
+        this.overlay.style.pointerEvents = 'none';
+        el = document.elementFromPoint(clientX, clientY);
+        this.overlay.style.pointerEvents = 'auto';
+      }
+      while (el && el !== document.documentElement && el !== document.body) {
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 20) {
+          return el;
+        }
+        el = el.parentElement;
+      }
+
+      const candidates = document.querySelectorAll('main, [role="main"], article, infinite-scroller');
+      for (const c of candidates) {
+        const style = window.getComputedStyle(c);
+        if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && c.scrollHeight > c.clientHeight + 20) {
+          return c;
+        }
+      }
+
+      return null;
+    }
+
+    getEffectiveScroll() {
+      const scroller = this.activeScrollContainer;
+      if (scroller && scroller !== window && scroller !== document.documentElement && scroller !== document.body && scroller !== document.scrollingElement) {
+        return {
+          x: scroller.scrollLeft || 0,
+          y: scroller.scrollTop || 0
+        };
+      }
+      return getScrollOffset();
     }
 
     onPointerDown(e) {
@@ -408,7 +484,8 @@
         this.banner.style.display = 'none';
       }
 
-      const scroll = getScrollOffset();
+      this.activeScrollContainer = this.findActiveScrollContainer(e.clientX, e.clientY);
+      const scroll = this.getEffectiveScroll();
       this.lastClientX = e.clientX;
       this.lastClientY = e.clientY;
 
@@ -439,8 +516,30 @@
       this.updateSelection(this.lastClientX, this.lastClientY);
     }
 
+    onWheel(e) {
+      if (!this.isDragging) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const scroller = this.activeScrollContainer || this.findActiveScrollContainer(this.lastClientX, this.lastClientY);
+      const isInner = scroller && scroller !== window && scroller !== document.documentElement && scroller !== document.body && scroller !== document.scrollingElement;
+
+      if (isInner) {
+        scroller.scrollTop += e.deltaY;
+        scroller.scrollLeft += e.deltaX;
+      } else {
+        window.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: 'instant' });
+        if (document.scrollingElement) {
+          document.scrollingElement.scrollTop += e.deltaY;
+          document.scrollingElement.scrollLeft += e.deltaX;
+        }
+      }
+
+      this.updateSelection(this.lastClientX, this.lastClientY);
+    }
+
     updateSelection(clientX, clientY) {
-      const scroll = getScrollOffset();
+      const scroll = this.getEffectiveScroll();
       const currentDocX = clientX + scroll.x;
       const currentDocY = clientY + scroll.y;
 
@@ -457,7 +556,8 @@
         width: Math.round(width),
         height: Math.round(height),
         right: Math.round(left + width),
-        bottom: Math.round(top + height)
+        bottom: Math.round(top + height),
+        scroller: this.activeScrollContainer
       };
 
       const screenLeft = left - scroll.x;
@@ -478,12 +578,24 @@
       const step = () => {
         if (!this.isDragging) return;
         const vh = window.innerHeight;
+        const scroller = this.activeScrollContainer || this.findActiveScrollContainer(this.lastClientX, this.lastClientY);
+        const isInner = scroller && scroller !== window && scroller !== document.documentElement && scroller !== document.body && scroller !== document.scrollingElement;
 
         if (this.lastClientY > vh - scrollThreshold) {
-          window.scrollBy({ top: scrollSpeed, left: 0, behavior: 'instant' });
+          if (isInner) {
+            scroller.scrollTop += scrollSpeed;
+          } else {
+            window.scrollBy({ top: scrollSpeed, left: 0, behavior: 'instant' });
+            if (document.scrollingElement) document.scrollingElement.scrollTop += scrollSpeed;
+          }
           this.updateSelection(this.lastClientX, this.lastClientY);
         } else if (this.lastClientY < scrollThreshold && this.lastClientY > 0) {
-          window.scrollBy({ top: -scrollSpeed, left: 0, behavior: 'instant' });
+          if (isInner) {
+            scroller.scrollTop -= scrollSpeed;
+          } else {
+            window.scrollBy({ top: -scrollSpeed, left: 0, behavior: 'instant' });
+            if (document.scrollingElement) document.scrollingElement.scrollTop -= scrollSpeed;
+          }
           this.updateSelection(this.lastClientX, this.lastClientY);
         }
 
@@ -572,7 +684,8 @@
       window.removeEventListener('pointerup', this.onPointerUp);
       window.removeEventListener('pointercancel', this.onPointerUp);
 
-      window.removeEventListener('scroll', this.onScroll);
+      window.removeEventListener('wheel', this.onWheel, { capture: true });
+      window.removeEventListener('scroll', this.onScroll, { capture: true });
       window.removeEventListener('keydown', this.onKeyDown, true);
 
       // Eliminar cualquier elemento overlay residual del DOM
@@ -587,12 +700,10 @@
       this.badge = null;
       this.banner = null;
       this.currentDocRect = null;
+      this.activeScrollContainer = null;
     }
   }
 
-  // =========================================================================
-  // 4. Captura Fallback por Franjas Ultra HD
-  // =========================================================================
   class FallbackEngine {
     static async captureSelectedArea(rect) {
       const rectX = Math.round(rect.x !== undefined ? rect.x : (rect.left || 0));
@@ -604,7 +715,9 @@
         throw new Error('Dimensiones de selección insuficientes.');
       }
 
-      const origScroll = getScrollOffset();
+      const scroller = rect.scroller;
+      const isInner = scroller && scroller !== window && scroller !== document.documentElement && scroller !== document.body && scroller !== document.scrollingElement;
+      const origScroll = isInner ? { x: scroller.scrollLeft, y: scroller.scrollTop } : getScrollOffset();
       const dims = getDocumentDimensions();
       const viewportWidth = dims.viewportWidth;
       const viewportHeight = dims.viewportHeight;
@@ -614,7 +727,7 @@
         top: rectY,
         right: rectX + rectW,
         bottom: rectY + rectH
-      });
+      }, origScroll);
 
       const slices = [];
 
@@ -647,33 +760,36 @@
         });
       } else {
         // Caso 2: El recuadro abarca más de una pantalla o requiere scroll.
-        // Ocultar elementos fixed / sticky para que no se dupliquen repetidamente en cada franja
+        // Ocultar barras flotantes de cabecera muy delgadas (< 120px) sin tocar contenedores ni sidebars
         const modifiedStyles = [];
-        const hideFixedElements = () => {
+        const hideFloatingHeaders = () => {
           if (modifiedStyles.length > 0) return;
-          const iterator = document.createNodeIterator(document.documentElement, NodeFilter.SHOW_ELEMENT);
-          let el;
-          while ((el = iterator.nextNode())) {
+          const all = document.querySelectorAll('*');
+          for (const el of all) {
             if (el.id === '__snappdf_overlay' || el.id === '__snappdf_toast') continue;
             const style = window.getComputedStyle(el);
             const pos = style.getPropertyValue('position');
             if (pos === 'fixed' || pos === 'sticky') {
-              modifiedStyles.push({
-                el,
-                opacity: el.style.opacity,
-                animation: el.style.animation,
-                transition: el.style.transition
-              });
-              el.style.setProperty('opacity', '0', 'important');
-              el.style.setProperty('animation', 'unset', 'important');
-              el.style.setProperty('transition', '0s', 'important');
+              const r = el.getBoundingClientRect();
+              if (r.height > 0 && r.height <= 120 && r.top <= 10 && r.width >= window.innerWidth * 0.5) {
+                if (!el.querySelector('main, article, [role="main"], p, ul, ol, h1, h2')) {
+                  modifiedStyles.push({
+                    el,
+                    opacity: el.style.opacity,
+                    animation: el.style.animation,
+                    transition: el.style.transition
+                  });
+                  el.style.setProperty('opacity', '0', 'important');
+                  el.style.setProperty('animation', 'unset', 'important');
+                  el.style.setProperty('transition', '0s', 'important');
+                }
+              }
             }
           }
         };
 
-        // Si la selección empieza por debajo del encabezado (> 80px), ocultamos fixed de inmediato
         if (rectY > 80) {
-          hideFixedElements();
+          hideFloatingHeaders();
         }
 
         try {
@@ -683,15 +799,18 @@
           const maxSlices = 60;
 
           while (currentY < bottomY && sliceIndex < maxSlices) {
-            // A partir de la segunda franja, garantizar que fixed/sticky no se repitan
             if (sliceIndex > 0) {
-              hideFixedElements();
+              hideFloatingHeaders();
             }
 
-            scrollToCoords(rectX, currentY);
+            if (isInner) {
+              scroller.scrollTop = currentY;
+            } else {
+              scrollToCoords(rectX, currentY);
+            }
             await new Promise(r => setTimeout(r, 350));
 
-            const currentScroll = getScrollOffset();
+            const currentScroll = isInner ? { x: scroller.scrollLeft, y: scroller.scrollTop } : getScrollOffset();
             const toast = document.getElementById('__snappdf_toast');
             if (toast) toast.style.display = 'none';
 
@@ -742,7 +861,12 @@
             el.style.animation = animation;
             el.style.transition = transition;
           });
-          scrollToCoords(origScroll.x, origScroll.y);
+          if (isInner) {
+            scroller.scrollTop = origScroll.y;
+            scroller.scrollLeft = origScroll.x;
+          } else {
+            scrollToCoords(origScroll.x, origScroll.y);
+          }
         }
       }
 
@@ -776,30 +900,38 @@
     }
 
     static async captureFullPage() {
-      const origScroll = getScrollOffset();
+      const mainScroll = getMainScrollTarget();
+      const isInner = !mainScroll.isWindow;
+      const scrollerEl = isInner ? mainScroll.el : null;
+      const origScroll = isInner ? { x: scrollerEl.scrollLeft, y: scrollerEl.scrollTop } : getScrollOffset();
       const dims = getDocumentDimensions();
       const viewportWidth = dims.viewportWidth;
       const viewportHeight = dims.viewportHeight;
       const fullWidth = Math.max(document.documentElement ? document.documentElement.clientWidth : 0, viewportWidth);
-      let fullHeight = dims.height;
+      let fullHeight = mainScroll.scrollHeight;
 
       const modifiedStyles = [];
-      const iterator = document.createNodeIterator(document.documentElement, NodeFilter.SHOW_ELEMENT);
-      let el;
-      while ((el = iterator.nextNode())) {
+      const allElements = document.querySelectorAll('*');
+      for (const el of allElements) {
         if (el.id === '__snappdf_overlay' || el.id === '__snappdf_toast') continue;
         const style = window.getComputedStyle(el);
         const pos = style.getPropertyValue('position');
         if (pos === 'fixed' || pos === 'sticky') {
-          modifiedStyles.push({
-            el,
-            opacity: el.style.opacity,
-            animation: el.style.animation,
-            transition: el.style.transition
-          });
-          el.style.setProperty('opacity', '0', 'important');
-          el.style.setProperty('animation', 'unset', 'important');
-          el.style.setProperty('transition', '0s', 'important');
+          const r = el.getBoundingClientRect();
+          // Solo ocultar barras flotantes de cabecera muy delgadas (< 120px) en el borde superior
+          if (r.height > 0 && r.height <= 120 && r.top <= 10 && r.width >= window.innerWidth * 0.5) {
+            if (!el.querySelector('main, article, [role="main"], p, ul, ol, h1, h2')) {
+              modifiedStyles.push({
+                el,
+                opacity: el.style.opacity,
+                animation: el.style.animation,
+                transition: el.style.transition
+              });
+              el.style.setProperty('opacity', '0', 'important');
+              el.style.setProperty('animation', 'unset', 'important');
+              el.style.setProperty('transition', '0s', 'important');
+            }
+          }
         }
       }
 
@@ -812,11 +944,14 @@
 
       try {
         while (currentY < fullHeight && sliceCount < maxSlices) {
-          scrollToCoords(0, currentY);
+          if (isInner) {
+            scrollerEl.scrollTop = currentY;
+          } else {
+            scrollToCoords(0, currentY);
+          }
           await new Promise(r => setTimeout(r, 380));
 
-          const currentScroll = getScrollOffset();
-          const actualY = currentScroll.y;
+          const actualY = isInner ? scrollerEl.scrollTop : getScrollOffset().y;
 
           if (actualY === lastActualY && currentY > actualY + 50) {
             break;
@@ -842,8 +977,7 @@
           sliceCount++;
           currentY += (viewportHeight - 25);
 
-          // Actualizar fullHeight si la página creció dinámicamente con scroll infinito
-          const currentDocHeight = document.documentElement ? document.documentElement.scrollHeight : dims.height;
+          const currentDocHeight = isInner ? scrollerEl.scrollHeight : (document.documentElement ? document.documentElement.scrollHeight : dims.height);
           if (currentDocHeight > fullHeight) {
             fullHeight = currentDocHeight;
           }
@@ -858,7 +992,7 @@
         }
 
         const calculatedFinalHeight = Math.max(maxCapturedBottom, fullHeight);
-        const { words, links, images, backgroundColor } = DomHarvester.harvest(null);
+        const { words, links, images, backgroundColor } = DomHarvester.harvest(null, origScroll);
 
         return {
           slices,
@@ -879,7 +1013,11 @@
           el.style.animation = animation;
           el.style.transition = transition;
         });
-        scrollToCoords(origScroll.x, origScroll.y);
+        if (isInner) {
+          scrollerEl.scrollTop = origScroll.y;
+        } else {
+          scrollToCoords(origScroll.x, origScroll.y);
+        }
       }
     }
 

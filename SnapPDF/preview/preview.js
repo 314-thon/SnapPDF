@@ -99,12 +99,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Actualizar motor activo en el panel lateral según el idioma
     if (statEngineEl && pdfEngineSelect) {
       const currentMode = pdfEngineSelect.value;
-      let activeTitle = cleanTitle;
+      let activeTitle = hybridTitle;
       let activeBytes = captureData?.pdfBytes?.length || 0;
-      if (currentMode === 'vector-compressed') {
+      if (currentMode === 'vector-clean') {
+        activeTitle = cleanTitle;
+      } else if (currentMode === 'vector-compressed') {
         activeTitle = compressedTitle;
-      } else if (currentMode === 'vector-hybrid') {
-        activeTitle = hybridTitle;
       } else if (currentMode === 'vector-native') {
         activeTitle = nativeTitle;
       }
@@ -257,34 +257,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (compressedOpt) compressedOpt.disabled = !hasWords;
     }
 
-    // Priorizar motor Vectorial Puro Fiel si hay palabras cosechadas
-    if (normalizedWords && normalizedWords.length > 0) {
-      loadingStatusText.textContent = 'Generando PDF vectorial puro fiel...';
-      const cleanVectorBytes = await generateCleanVectorPdf(false);
-      captureData.cleanVectorBytes = cleanVectorBytes;
-      captureData.pdfBytes = cleanVectorBytes;
+    // Priorizar motor Fiel Buscable HD por defecto (máxima fidelidad gráfica pixel-perfect + texto buscable)
+    if (hasImagePayload) {
+      loadingStatusText.textContent = 'Generando PDF fiel buscable de alta definición...';
+      const hybridVectorBytes = await generateFallbackSearchablePdf();
+      captureData.rasterHdBytes = hybridVectorBytes;
+      captureData.pdfBytes = hybridVectorBytes;
 
-      statEngineEl.textContent = `⚡ Vectorial Puro Fiel (${formatBytes(cleanVectorBytes.length)})`;
+      statEngineEl.textContent = `📸 Fiel Buscable HD (${formatBytes(hybridVectorBytes.length)})`;
       vectorBadge.style.display = 'inline-flex';
       vectorBadge.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
         </svg>
-        PDF Vectorial Fiel
+        PDF Fiel Buscable HD
       `;
-      if (pdfEngineSelect) pdfEngineSelect.value = 'vector-clean';
+      if (pdfEngineSelect) pdfEngineSelect.value = 'vector-hybrid';
     } else if (captureData.cdpBytes) {
       captureData.pdfBytes = captureData.cdpBytes;
       statEngineEl.textContent = `🖨️ Chromium CDP Print (${formatBytes(captureData.cdpBytes.length)})`;
       vectorBadge.style.display = 'inline-flex';
       if (pdfEngineSelect) pdfEngineSelect.value = 'vector-native';
     } else {
-      loadingStatusText.textContent = 'Generando PDF fiel de alta definición...';
-      const hybridVectorBytes = await generateFallbackSearchablePdf();
-      captureData.rasterHdBytes = hybridVectorBytes;
-      captureData.pdfBytes = hybridVectorBytes;
-      statEngineEl.textContent = `📸 Fiel Buscable HD (${formatBytes(hybridVectorBytes.length)})`;
-      if (pdfEngineSelect) pdfEngineSelect.value = 'vector-hybrid';
+      loadingStatusText.textContent = 'Generando PDF vectorial puro fiel...';
+      const cleanVectorBytes = await generateCleanVectorPdf(false);
+      captureData.cleanVectorBytes = cleanVectorBytes;
+      captureData.pdfBytes = cleanVectorBytes;
+      statEngineEl.textContent = `⚡ Vectorial Puro Fiel (${formatBytes(cleanVectorBytes.length)})`;
+      if (pdfEngineSelect) pdfEngineSelect.value = 'vector-clean';
     }
 
     activePdfBlob = new Blob([captureData.pdfBytes], { type: 'application/pdf' });
@@ -296,13 +296,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Calcular de fondo los otros motores para que el desplegable muestre los pesos reales de todos
     setTimeout(async () => {
       try {
-        if (normalizedWords && normalizedWords.length > 0 && !captureData.compressedVectorBytes) {
-          captureData.compressedVectorBytes = await generateCleanVectorPdf(true);
-          updateEngineOptionLabels();
-        }
-        if (!captureData.rasterHdBytes && hasImagePayload) {
-          captureData.rasterHdBytes = await generateFallbackSearchablePdf();
-          updateEngineOptionLabels();
+        if (normalizedWords && normalizedWords.length > 0) {
+          if (!captureData.cleanVectorBytes) {
+            captureData.cleanVectorBytes = await generateCleanVectorPdf(false);
+            updateEngineOptionLabels();
+          }
+          if (!captureData.compressedVectorBytes) {
+            captureData.compressedVectorBytes = await generateCleanVectorPdf(true);
+            updateEngineOptionLabels();
+          }
         }
       } catch (bgErr) {
         console.warn('Error calculando tamaño de motor de fondo:', bgErr);
@@ -1064,18 +1066,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // Limpiar (rellenar) las zonas donde hay texto para eliminar las letras raster de la pantalla
-      // Así se evita cualquier doble texto fantasma y el texto vectorial se posa sobre fondo limpio
-      bgCtx.fillStyle = bgCssColor;
+      // Muestrear el color local de fondo alrededor de cada palabra para respetar tarjetas, burbujas y banners
+      const mainCtx = mainCanvas.getContext('2d', { willReadFrequently: true });
       for (const w of normalizedWords) {
         if (!w.text || !w.text.trim()) continue;
         const padX = Math.round(2 * scaleX);
         const padY = Math.round(2 * scaleY);
-        bgCtx.fillRect(
-          Math.max(0, Math.round(w.x * scaleX) - padX),
-          Math.max(0, Math.round(w.y * scaleY) - padY),
-          Math.round(w.width * scaleX) + padX * 2,
-          Math.round(w.height * scaleY) + padY * 2
-        );
+        const targetX = Math.max(0, Math.round(w.x * scaleX) - padX);
+        const targetY = Math.max(0, Math.round(w.y * scaleY) - padY);
+        const targetW = Math.round(w.width * scaleX) + padX * 2;
+        const targetH = Math.round(w.height * scaleY) + padY * 2;
+
+        let localColor = bgCssColor;
+        try {
+          const sampleX = Math.max(0, Math.min(mainCanvas.width - 1, targetX - 2));
+          const sampleY = Math.max(0, Math.min(mainCanvas.height - 1, targetY - 2));
+          const pix = mainCtx.getImageData(sampleX, sampleY, 1, 1).data;
+          if (pix[3] > 0) {
+            localColor = `rgb(${pix[0]}, ${pix[1]}, ${pix[2]})`;
+          }
+        } catch (e) {}
+
+        bgCtx.fillStyle = localColor;
+        bgCtx.fillRect(targetX, targetY, targetW, targetH);
       }
 
       // Incrustar el lienzo gráfico: JPEG al 30% para modo ligero, o PNG lossless / JPEG al 94% para modo fiel
