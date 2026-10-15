@@ -171,13 +171,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     activePdfBlob = new Blob([hybridVectorBytes], { type: 'application/pdf' });
     activePdfUrl = URL.createObjectURL(activePdfBlob);
 
-    statEngineEl.textContent = '🎯 Vectorial Fiel (Nativo + Fondos y Fotos)';
+    statEngineEl.textContent = '🎯 Fiel Buscable (Fotos + Fondos + Texto Copiable)';
     vectorBadge.style.display = 'inline-flex';
     vectorBadge.innerHTML = `
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
       </svg>
-      PDF Vectorial Fiel
+      PDF Fiel Buscable
     `;
 
     // Escuchar cambio de modo en el selector de motor
@@ -195,13 +195,13 @@ document.addEventListener('DOMContentLoaded', async () => {
               captureData.rasterHdBytes = await generateFallbackSearchablePdf();
             }
             captureData.pdfBytes = captureData.rasterHdBytes;
-            statEngineEl.textContent = '🎯 Vectorial Fiel (Nativo + Fondos y Fotos)';
+            statEngineEl.textContent = '🎯 Fiel Buscable (Fotos + Fondos + Texto Copiable)';
           } else if (mode === 'vector-clean') {
             if (!captureData.cleanVectorBytes) {
               captureData.cleanVectorBytes = await generateCleanVectorPdf();
             }
             captureData.pdfBytes = captureData.cleanVectorBytes;
-            statEngineEl.textContent = '⚡ Vectorial Minimalista (Solo Texto ~40KB)';
+            statEngineEl.textContent = '⚡ Texto Minimalista (Solo Texto ~4KB)';
           } else if (mode === 'cdp-full') {
             if (!captureData.cdpBytes && captureData.isVector && captureData.pdfBase64) {
               const binaryString = atob(captureData.pdfBase64);
@@ -408,8 +408,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       height: finalHeight
     });
 
-    // Renderizado de texto vectorial visible 100% nítido (no invisible)
-    page.pushOperators(setTextRenderingMode(TextRenderingMode.Fill));
+    // Renderizado de capa de texto invisible para selección y búsqueda (sin doble texto fantasma)
+    page.pushOperators(setTextRenderingMode(TextRenderingMode.Invisible));
 
     const regularFont = font;
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
