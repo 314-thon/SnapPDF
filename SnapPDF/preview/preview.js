@@ -1002,7 +1002,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return await pdfDoc.save({ useObjectStreams: true });
   }
 
-  // Generador de PDF Vectorial Puro Fiel (~50KB) o Vectorial Ligero 50% (~15-20KB)
+  // Generador de PDF Vectorial Puro Fiel (~50KB) o Vectorial Ligero 30% (~10-15KB)
   // Fondo real, imágenes/avatares del post incrustados y texto nativo 100% vectorial
   async function generateCleanVectorPdf(isCompressed = false) {
     const { PDFDocument, StandardFonts, rgb, PDFString, PDFName } = PDFLib;
@@ -1078,10 +1078,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
       }
 
-      // Incrustar el lienzo gráfico: JPEG al 50% para modo ligero, o PNG lossless / JPEG al 94% para modo fiel
+      // Incrustar el lienzo gráfico: JPEG al 30% para modo ligero, o PNG lossless / JPEG al 94% para modo fiel
       let embeddedBg;
       if (isCompressed) {
-        const imgDataUrl = bgCanvas.toDataURL('image/jpeg', 0.50);
+        const imgDataUrl = bgCanvas.toDataURL('image/jpeg', 0.30);
         const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
         embeddedBg = await pdfDoc.embedJpg(imgBytes);
       } else {
