@@ -1,65 +1,51 @@
 # SnapPDF
 
-Extensión para Chromium (Chrome, Edge, Brave, Opera) que captura páginas completas o selecciones manuales y las exporta a PDF en alta calidad o PNG, manteniendo el texto seleccionable y los enlaces web activos.
-
-Sin servidores externos, sin tracking y sin telemetría. Todo el procesamiento corre directo en tu navegador.
+[English](README.md) | [Español](README.es.md) | [Português](README.pt.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 ---
 
-## Qué hace diferente a SnapPDF
+Browser extension for Chromium (Chrome, Edge, Brave, Opera) that captures full web pages or custom area selections, exporting high-fidelity PDFs and PNGs while preserving clickable links and selectable text.
 
-- **PDFs con enlaces reales:** no te deja una imagen muerta pegada en una hoja. Si la página tenía links (`<a>`), el PDF final conserva las anotaciones clicables en sus coordenadas exactas para que puedas abrirlos directo desde cualquier lector de PDF.
-- **Calidad Ultra HD sin pixelado:** motor de renderizado por franjas milimétricas que evita los típicos cortes raros, saltos de bloques o barras fijas duplicadas que dejan otras extensiones.
-- **Texto y emojis seleccionables:** incrusta una capa de texto invisible alineada con la captura (`/ActualText` en UTF-16BE), así que podés buscar con `Ctrl + F`, seleccionar texto y copiar emojis sin que se rompan.
-- **Formato continuo o dividido en A4:** podés descargar el documento como una sola tira vertical para leer de corrido o formatearlo automáticamente en páginas A4 estándar listas para imprimir.
-- **Exportación rápida y portapapeles:** descargá en PNG o mandá la imagen directo al portapapeles con un botón para pegarla al instante en Slack, WhatsApp o Notion. También podés extraer y copiar todos los enlaces de la captura en texto plano de un saque.
-- **100% privado y offline:** no manda tus capturas a ningún backend. Corre localmente con la API de extensiones de tu navegador.
+No remote servers, no tracking, and no telemetry. All processing runs 100% locally in your browser.
 
 ---
 
-## Atajos de teclado
+## Key Features
 
-| Acción | Windows / Linux | macOS |
+- **PDFs with active, clickable links:** unlike standard tools that flatten pages into dead images, SnapPDF extracts all `<a>` tags and embeds exact PDF link annotations. Every hyperlink remains clickable in any PDF reader.
+- **Ultra HD millimeter rendering:** advanced slice-and-crop compositor that eliminates duplicate sticky navigation bars, misaligned blocks, and seams.
+- **Searchable text and emoji support:** builds an invisible text layer aligned with the capture (`/ActualText` in UTF-16BE). You can search with `Ctrl + F`, highlight text, and copy emojis without garbled characters.
+- **Continuous page or multi-page A4:** choose between a single continuous roll (ideal for web articles and design reviews) or auto-paginated standard A4 sheets ready for printing.
+- **Instant export & clipboard actions:** download as PNG or copy the graphic directly to your system clipboard (`Ctrl + C`) to paste into Slack, Notion, or WhatsApp. You can also extract and copy every link on the page in plain text with one click.
+- **Private & offline-first:** zero cloud reliance. No user data, screenshots, or URLs ever leave your local machine.
+
+---
+
+## Keyboard Shortcuts
+
+| Action | Windows / Linux | macOS |
 | :--- | :--- | :--- |
-| **Capturar recuadro seleccionado** | `Ctrl + Shift + S` | `Command + Shift + S` |
-| **Capturar página completa** | `Ctrl + Shift + E` | `Command + Shift + E` |
-| **Capturar vista visible** | `Ctrl + Shift + X` | `Command + Shift + X` |
+| **Capture selected area** | `Ctrl + Shift + S` | `Command + Shift + S` |
+| **Capture full page** | `Ctrl + Shift + E` | `Command + Shift + E` |
+| **Capture visible viewport** | `Ctrl + Shift + X` | `Command + Shift + X` |
 
-Podés personalizar estos atajos en cualquier momento entrando a `chrome://extensions/shortcuts` o `edge://extensions/shortcuts`.
+Customize shortcuts at `chrome://extensions/shortcuts` or `edge://extensions/shortcuts`.
 
 ---
 
-## Cómo instalarla en modo desarrollador
+## Installation (Developer Mode)
 
-Como no hace falta pagar la licencia de la tienda para usarla o compartirla, la podés cargar directamente en tu navegador:
-
-1. Cloná este repositorio o descargá el ZIP del proyecto y descomprimilo en una carpeta fija.
-2. Abrí tu navegador basado en Chromium y andá a la sección de extensiones:
+1. Clone this repository or download the ZIP archive.
+2. Open your Chromium-based browser and navigate to:
    - Chrome: `chrome://extensions`
    - Edge: `edge://extensions`
    - Brave: `brave://extensions`
-3. Activá la casilla o switch de **Modo de desarrollador** (suele estar arriba a la derecha).
-4. Hacé clic en **Cargar descomprimida** (Load unpacked) y seleccioná la carpeta `SnapPDF`.
-5. Listo. Ya te aparece el icono de SnapPDF en la barra de herramientas para usarla cuando quieras.
+3. Enable **Developer mode** (top right switch).
+4. Click **Load unpacked** and select the `SnapPDF` folder.
+5. SnapPDF is ready in your extension bar.
 
 ---
 
-## Estructura del proyecto
+## License
 
-```text
-SnapPDF/
-├── icons/            # Iconos de la extensión en diferentes resoluciones
-├── lib/              # Librerías locales (pdf-lib para ensamblado de PDFs)
-├── popup/            # Interfaz emergente al hacer clic en el icono
-├── preview/          # Visor y editor posterior a la captura (descarga A4/Continuo, copiado)
-├── scripts/
-│   ├── background.js # Service worker para atajos globales y capturas de pestaña
-│   └── content.js    # Selector visual de área y cálculo de scroll
-└── manifest.json     # Manifiesto V3 de la extensión
-```
-
----
-
-## Licencia
-
-Distribuido bajo licencia MIT. Sentite libre de usarlo, adaptarlo o contribuir.
+MIT License. Free to use, modify, and distribute.
