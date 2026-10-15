@@ -102,11 +102,61 @@
       return rects && rects.length > 0;
     }
 
+    static isIconElement(el, compStyle, rawText) {
+      if (!el) return false;
+      if (el.closest('svg, mat-icon, [data-icon], .material-icons, .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp, .google-symbols, .fa, .fas, .far, .fab, .bi, .codicon, [role="img"]')) {
+        return true;
+      }
+      const fontFamily = (compStyle && compStyle.fontFamily ? compStyle.fontFamily : '').toLowerCase();
+      if (/icon|symbol|material|fontawesome|glyph|feather|lucide|remix|codicon|icomoon|octicon/.test(fontFamily)) {
+        return true;
+      }
+      const trimmed = (rawText || '').trim();
+      if ((el.tagName === 'I' || el.tagName === 'SPAN') && el.getAttribute('aria-hidden') === 'true' && trimmed.length <= 28 && !/\s/.test(trimmed)) {
+        return true;
+      }
+      return false;
+    }
+
+    static findEffectiveBgColor(el) {
+      let curr = el;
+      while (curr && curr !== document.documentElement) {
+        const bg = window.getComputedStyle(curr).backgroundColor;
+        if (bg && bg !== 'transparent' && !bg.startsWith('rgba(0, 0, 0, 0)')) {
+          return bg;
+        }
+        curr = curr.parentElement;
+      }
+      return null;
+    }
+
+    static shouldPreserveVisual(el, compStyle) {
+      if (!el) return false;
+      if (el.closest('code, pre, kbd, samp, button, mark, .badge, .pill, .chip')) {
+        return true;
+      }
+      let checkEl = el;
+      for (let depth = 0; depth < 2 && checkEl && checkEl !== document.body; depth++) {
+        const r = checkEl.getBoundingClientRect();
+        if (r.width > 0 && r.width <= 68 && r.height > 0 && r.height <= 48) {
+          const st = depth === 0 && compStyle ? compStyle : window.getComputedStyle(checkEl);
+          const hasBorder = (parseFloat(st.borderTopWidth) > 0 || parseFloat(st.borderLeftWidth) > 0) && st.borderTopStyle !== 'none';
+          const radius = parseFloat(st.borderTopLeftRadius) || 0;
+          const bg = st.backgroundColor;
+          const hasBg = bg && bg !== 'transparent' && !bg.startsWith('rgba(0, 0, 0, 0)');
+          if (hasBorder || (radius >= 4 && hasBg)) {
+            return true;
+          }
+        }
+        checkEl = checkEl.parentElement;
+      }
+      return false;
+    }
+
     static harvest(bounds = null, customScroll = null) {
       const scroll = customScroll || getScrollOffset();
       const words = [];
       const links = [];
-
 
       const textIterator = document.createNodeIterator(
         document.body || document.documentElement,
@@ -139,6 +189,15 @@
 
         const text = textNode.textContent;
         if (!text) continue;
+
+        const compStyle = window.getComputedStyle(parent);
+        if (this.isIconElement(parent, compStyle, text)) continue;
+
+        const color = compStyle ? compStyle.color : 'rgb(0,0,0)';
+        const fontWeight = compStyle ? compStyle.fontWeight : '400';
+        const fontStyle = compStyle ? compStyle.fontStyle : 'normal';
+        const bgColor = this.findEffectiveBgColor(parent);
+        const preserveVisual = this.shouldPreserveVisual(parent, compStyle);
 
         // Segmentación por espacios en blanco para preservar URLs, puntuación y palabras completas
         const len = text.length;
@@ -178,10 +237,6 @@
                 }
 
                 const hasUnicode = /[^\x20-\x7E\xA0-\xFF]/.test(word);
-
-                const compStyle = window.getComputedStyle(parent);
-                const color = compStyle ? compStyle.color : 'rgb(0,0,0)';
-                const fontWeight = compStyle ? compStyle.fontWeight : '400';
                 const fontSize = compStyle ? parseFloat(compStyle.fontSize) || Math.round(rect.height * 0.8) : Math.round(rect.height * 0.8);
 
                 words.push({
@@ -192,8 +247,11 @@
                   height: Math.round(rect.height),
                   fontSize: Math.round(fontSize),
                   color,
+                  bgColor,
                   fontWeight,
-                  hasUnicode
+                  fontStyle,
+                  hasUnicode,
+                  preserveVisual: preserveVisual || hasUnicode
                 });
               }
             } catch (e) {}
@@ -705,6 +763,30 @@
   }
 
   class FallbackEngine {
+    static mergeHarvested(target, sliceHarvest) {
+      if (sliceHarvest.backgroundColor && !target.backgroundColor) {
+        target.backgroundColor = sliceHarvest.backgroundColor;
+      }
+      for (const w of sliceHarvest.words) {
+        const isDup = target.words.some(ew =>
+          ew.text === w.text && Math.abs(ew.x - w.x) <= 4 && Math.abs(ew.y - w.y) <= 6
+        );
+        if (!isDup) target.words.push(w);
+      }
+      for (const l of sliceHarvest.links) {
+        const isDup = target.links.some(el =>
+          el.url === l.url && Math.abs(el.x - l.x) <= 6 && Math.abs(el.y - l.y) <= 8
+        );
+        if (!isDup) target.links.push(l);
+      }
+      for (const img of sliceHarvest.images) {
+        const isDup = target.images.some(ei =>
+          Math.abs(ei.x - img.x) < 8 && Math.abs(ei.y - img.y) < 8 && Math.abs(ei.width - img.width) < 12
+        );
+        if (!isDup) target.images.push(img);
+      }
+    }
+
     static async captureSelectedArea(rect) {
       const rectX = Math.round(rect.x !== undefined ? rect.x : (rect.left || 0));
       const rectY = Math.round(rect.y !== undefined ? rect.y : (rect.top || 0));
@@ -722,13 +804,7 @@
       const viewportWidth = dims.viewportWidth;
       const viewportHeight = dims.viewportHeight;
 
-      const { words, links, images, backgroundColor } = DomHarvester.harvest({
-        left: rectX,
-        top: rectY,
-        right: rectX + rectW,
-        bottom: rectY + rectH
-      }, origScroll);
-
+      const harvested = { words: [], links: [], images: [], backgroundColor: null };
       const slices = [];
 
       // Caso 1: Si el recuadro está completamente visible en la pantalla actual (sin necesidad de scroll)
@@ -740,6 +816,14 @@
       );
 
       if (isVisibleInScreen) {
+        const initialHarvest = DomHarvester.harvest({
+          left: rectX,
+          top: rectY,
+          right: rectX + rectW,
+          bottom: rectY + rectH
+        }, origScroll);
+        this.mergeHarvested(harvested, initialHarvest);
+
         const captureResponse = await new Promise(resolve => {
           chrome.runtime.sendMessage({ action: 'capture-slice' }, resolve);
         });
@@ -760,7 +844,6 @@
         });
       } else {
         // Caso 2: El recuadro abarca más de una pantalla o requiere scroll.
-        // Ocultar barras flotantes de cabecera muy delgadas (< 120px) sin tocar contenedores ni sidebars
         const modifiedStyles = [];
         const hideFloatingHeaders = () => {
           if (modifiedStyles.length > 0) return;
@@ -797,20 +880,29 @@
           const bottomY = rectY + rectH;
           let sliceIndex = 0;
           const maxSlices = 60;
+          let prevScrollY = -1;
 
           while (currentY < bottomY && sliceIndex < maxSlices) {
             if (sliceIndex > 0) {
               hideFloatingHeaders();
             }
 
+            const topClearance = currentY > 80 ? 80 : 0;
+            const targetScrollY = Math.max(0, currentY - topClearance);
+
             if (isInner) {
-              scroller.scrollTop = currentY;
+              scroller.scrollTop = targetScrollY;
             } else {
-              scrollToCoords(rectX, currentY);
+              scrollToCoords(rectX, targetScrollY);
             }
-            await new Promise(r => setTimeout(r, 350));
+            await new Promise(r => setTimeout(r, 320));
 
             const currentScroll = isInner ? { x: scroller.scrollLeft, y: scroller.scrollTop } : getScrollOffset();
+            const maxScrollHeight = isInner ? scroller.scrollHeight : Math.max(dims.height, document.documentElement ? document.documentElement.scrollHeight : 0);
+            const viewH = isInner ? scroller.clientHeight : viewportHeight;
+            const maxScrollTop = Math.max(0, maxScrollHeight - viewH);
+            const canScrollMore = currentScroll.y < maxScrollTop - 5;
+
             const toast = document.getElementById('__snappdf_toast');
             if (toast) toast.style.display = 'none';
 
@@ -828,14 +920,29 @@
             const cropXInScreen = Math.max(0, rectX - currentScroll.x);
             const cropYInScreen = Math.max(0, currentY - currentScroll.y);
             const remainingDocHeight = bottomY - currentY;
-            const availableScreenHeight = Math.max(0, viewportHeight - cropYInScreen);
 
+            // Si todavía podemos seguir scrolleando hacia abajo y la selección sigue más abajo,
+            // detener la franja 140px antes del borde inferior para no capturar barras de chat flotantes
+            let effectiveViewportBottom = viewportHeight;
+            if (canScrollMore && (cropYInScreen + remainingDocHeight > viewportHeight - 140)) {
+              effectiveViewportBottom = Math.max(cropYInScreen + 180, viewportHeight - 140);
+            }
+
+            const availableScreenHeight = Math.max(0, effectiveViewportBottom - cropYInScreen);
             const pieceWidth = Math.min(rectW, Math.max(0, viewportWidth - cropXInScreen));
             const pieceHeight = Math.min(remainingDocHeight, availableScreenHeight);
 
             if (pieceWidth <= 0 || pieceHeight <= 0) {
               break;
             }
+
+            const sliceHarvest = DomHarvester.harvest({
+              left: rectX,
+              top: currentY,
+              right: rectX + pieceWidth,
+              bottom: currentY + pieceHeight
+            }, currentScroll);
+            this.mergeHarvested(harvested, sliceHarvest);
 
             slices.push({
               dataUrl: captureResponse.dataUrl,
@@ -851,9 +958,13 @@
             sliceIndex++;
             currentY += pieceHeight;
 
-            if (currentScroll.y + viewportHeight >= dims.height) {
+            if (!canScrollMore && currentY >= currentScroll.y + viewportHeight) {
               break;
             }
+            if (sliceIndex > 1 && currentScroll.y === prevScrollY && currentY >= currentScroll.y + viewportHeight) {
+              break;
+            }
+            prevScrollY = currentScroll.y;
           }
         } finally {
           modifiedStyles.forEach(({ el, opacity, animation, transition }) => {
@@ -874,26 +985,28 @@
         throw new Error('No se pudo capturar ninguna franja de la selección. Asegúrate de que la pestaña esté activa y visible.');
       }
 
+      const actualCapturedHeight = slices.reduce((maxB, s) => Math.max(maxB, s.destY + s.cropH), 0) || rectH;
+
       return {
         slices,
         finalWidth: rectW,
-        finalHeight: rectH,
+        finalHeight: Math.min(rectH, actualCapturedHeight),
         cropBox: {
           x: rectX,
           y: rectY,
           width: rectW,
-          height: rectH
+          height: Math.min(rectH, actualCapturedHeight)
         },
-        words: words.map(w => ({ ...w, x: w.x - rectX, y: w.y - rectY })),
-        links: links.map(l => ({ ...l, x: l.x - rectX, y: l.y - rectY })),
-        images: (images || []).map(img => ({
+        words: harvested.words.map(w => ({ ...w, x: w.x - rectX, y: w.y - rectY })),
+        links: harvested.links.map(l => ({ ...l, x: l.x - rectX, y: l.y - rectY })),
+        images: (harvested.images || []).map(img => ({
           ...img,
           x: Math.max(0, img.x - rectX),
           y: Math.max(0, img.y - rectY),
           width: Math.min(img.width, rectW - Math.max(0, img.x - rectX)),
           height: Math.min(img.height, rectH - Math.max(0, img.y - rectY))
         })),
-        backgroundColor,
+        backgroundColor: harvested.backgroundColor,
         title: document.title || 'Recuadro',
         url: window.location.href
       };
@@ -907,7 +1020,7 @@
       const dims = getDocumentDimensions();
       const viewportWidth = dims.viewportWidth;
       const viewportHeight = dims.viewportHeight;
-      const fullWidth = Math.max(document.documentElement ? document.documentElement.clientWidth : 0, viewportWidth);
+      const fullWidth = viewportWidth;
       let fullHeight = mainScroll.scrollHeight;
 
       const modifiedStyles = [];
@@ -935,25 +1048,38 @@
         }
       }
 
+      const harvested = { words: [], links: [], images: [], backgroundColor: null };
       const slices = [];
       let currentY = 0;
       let lastActualY = -1;
       let sliceCount = 0;
-      let maxCapturedBottom = 0;
       const maxSlices = 50;
 
       try {
         while (currentY < fullHeight && sliceCount < maxSlices) {
+          const topClearance = sliceCount > 0 ? 80 : 0;
+          const targetScrollY = Math.max(0, currentY - topClearance);
+
           if (isInner) {
-            scrollerEl.scrollTop = currentY;
+            scrollerEl.scrollTop = targetScrollY;
           } else {
-            scrollToCoords(0, currentY);
+            scrollToCoords(0, targetScrollY);
           }
-          await new Promise(r => setTimeout(r, 380));
+          await new Promise(r => setTimeout(r, 360));
 
           const actualY = isInner ? scrollerEl.scrollTop : getScrollOffset().y;
+          const currentScroll = isInner ? { x: scrollerEl.scrollLeft, y: actualY } : getScrollOffset();
 
-          if (actualY === lastActualY && currentY > actualY + 50) {
+          const currentDocHeight = isInner ? scrollerEl.scrollHeight : (document.documentElement ? document.documentElement.scrollHeight : dims.height);
+          if (currentDocHeight > fullHeight) {
+            fullHeight = currentDocHeight;
+          }
+
+          const viewH = isInner ? scrollerEl.clientHeight : viewportHeight;
+          const maxScrollTop = Math.max(0, fullHeight - viewH);
+          const canScrollMore = actualY < maxScrollTop - 5;
+
+          if (sliceCount > 0 && actualY === lastActualY && currentY >= actualY + viewportHeight) {
             break;
           }
           lastActualY = actualY;
@@ -966,23 +1092,45 @@
             break;
           }
 
+          const cropYInScreen = Math.max(0, currentY - actualY);
+          const remainingDocHeight = fullHeight - currentY;
+
+          let effectiveViewportBottom = viewportHeight;
+          if (canScrollMore && (cropYInScreen + remainingDocHeight > viewportHeight - 140)) {
+            effectiveViewportBottom = Math.max(cropYInScreen + 180, viewportHeight - 140);
+          }
+
+          const availableScreenHeight = Math.max(0, effectiveViewportBottom - cropYInScreen);
+          const pieceHeight = Math.min(remainingDocHeight, availableScreenHeight);
+
+          if (pieceHeight <= 0) {
+            break;
+          }
+
+          const sliceHarvest = DomHarvester.harvest({
+            left: 0,
+            top: currentY,
+            right: viewportWidth,
+            bottom: currentY + pieceHeight
+          }, currentScroll);
+          this.mergeHarvested(harvested, sliceHarvest);
+
           slices.push({
             dataUrl: captureResponse.dataUrl,
-            y: actualY,
-            height: viewportHeight,
+            cropX: 0,
+            cropY: cropYInScreen,
+            cropW: viewportWidth,
+            cropH: pieceHeight,
+            destY: currentY,
+            y: currentY,
+            height: pieceHeight,
             width: viewportWidth
           });
 
-          maxCapturedBottom = Math.max(maxCapturedBottom, actualY + viewportHeight);
           sliceCount++;
-          currentY += (viewportHeight - 25);
+          currentY += pieceHeight;
 
-          const currentDocHeight = isInner ? scrollerEl.scrollHeight : (document.documentElement ? document.documentElement.scrollHeight : dims.height);
-          if (currentDocHeight > fullHeight) {
-            fullHeight = currentDocHeight;
-          }
-
-          if (actualY + viewportHeight >= fullHeight - 10) {
+          if (!canScrollMore && currentY >= actualY + viewportHeight) {
             break;
           }
         }
@@ -991,8 +1139,7 @@
           throw new Error('No se pudo capturar ninguna franja de la página completa.');
         }
 
-        const calculatedFinalHeight = Math.max(maxCapturedBottom, fullHeight);
-        const { words, links, images, backgroundColor } = DomHarvester.harvest(null, origScroll);
+        const calculatedFinalHeight = slices.reduce((maxB, s) => Math.max(maxB, s.destY + s.cropH), 0) || fullHeight;
 
         return {
           slices,
@@ -1000,10 +1147,10 @@
           fullHeight: calculatedFinalHeight,
           viewportWidth,
           viewportHeight,
-          words,
-          links,
-          images: images || [],
-          backgroundColor,
+          words: harvested.words,
+          links: harvested.links,
+          images: harvested.images || [],
+          backgroundColor: harvested.backgroundColor,
           title: document.title || 'Página Completa',
           url: window.location.href
         };

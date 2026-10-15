@@ -257,20 +257,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (compressedOpt) compressedOpt.disabled = !hasWords;
     }
 
-    // Priorizar motor Fiel Buscable HD por defecto (máxima fidelidad gráfica pixel-perfect + texto buscable)
+    // Priorizar motor Fiel Buscable FHD por defecto (máxima fidelidad gráfica pixel-perfect + texto buscable)
     if (hasImagePayload) {
-      loadingStatusText.textContent = 'Generando PDF fiel buscable de alta definición...';
+      loadingStatusText.textContent = 'Generando PDF fiel buscable FHD...';
       const hybridVectorBytes = await generateFallbackSearchablePdf();
       captureData.rasterHdBytes = hybridVectorBytes;
       captureData.pdfBytes = hybridVectorBytes;
 
-      statEngineEl.textContent = `📸 Fiel Buscable HD (${formatBytes(hybridVectorBytes.length)})`;
+      statEngineEl.textContent = `📸 Fiel Buscable FHD (${formatBytes(hybridVectorBytes.length)})`;
       vectorBadge.style.display = 'inline-flex';
       vectorBadge.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
         </svg>
-        PDF Fiel Buscable HD
+        PDF Fiel Buscable FHD
       `;
       if (pdfEngineSelect) pdfEngineSelect.value = 'vector-hybrid';
     } else if (captureData.cdpBytes) {
@@ -389,6 +389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function processFallbackCapture() {
     const ctx = mainCanvas.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
 
     if (captureData.type === 'selection') {
       if (!captureData.slices || captureData.slices.length === 0) {
@@ -429,12 +430,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       finalHeight = captureData.height;
 
       const img = await loadImage(captureData.dataUrl);
-      const scale = img.naturalWidth / (captureData.viewportWidth || img.naturalWidth);
+      mainCanvas.width = img.naturalWidth;
+      mainCanvas.height = img.naturalHeight;
 
-      mainCanvas.width = Math.round(finalWidth * scale);
-      mainCanvas.height = Math.round(finalHeight * scale);
-
-      ctx.drawImage(img, 0, 0, mainCanvas.width, mainCanvas.height);
+      ctx.drawImage(img, 0, 0);
 
       normalizedWords = captureData.words || [];
       normalizedLinks = captureData.links || [];
@@ -455,11 +454,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       for (const slice of captureData.slices) {
         const sliceImg = await loadImage(slice.dataUrl);
-        const sliceW = Math.round((slice.width || captureData.viewportWidth) * scale);
-        const sliceH = Math.round((slice.height || captureData.viewportHeight) * scale);
-        const destY = Math.round(slice.y * scale);
-
-        ctx.drawImage(sliceImg, 0, 0, sliceImg.naturalWidth, sliceImg.naturalHeight, 0, destY, sliceW, sliceH);
+        if (slice.cropY !== undefined && slice.cropH !== undefined) {
+          const sX = Math.round((slice.cropX || 0) * scale);
+          const sY = Math.round(slice.cropY * scale);
+          const sW = Math.round((slice.cropW || slice.width || captureData.viewportWidth) * scale);
+          const sH = Math.round(slice.cropH * scale);
+          const dY = Math.round((slice.destY !== undefined ? slice.destY : slice.y) * scale);
+          if (sW > 0 && sH > 0) {
+            ctx.drawImage(sliceImg, sX, sY, sW, sH, 0, dY, sW, sH);
+          }
+        } else {
+          const sliceW = Math.round((slice.width || captureData.viewportWidth) * scale);
+          const sliceH = Math.round((slice.height || captureData.viewportHeight) * scale);
+          const destY = Math.round(slice.y * scale);
+          ctx.drawImage(sliceImg, 0, 0, sliceImg.naturalWidth, sliceImg.naturalHeight, 0, destY, sliceW, sliceH);
+        }
       }
 
       normalizedWords = captureData.words || [];
@@ -522,15 +531,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   toggleLinkOverlay.addEventListener('change', updateHighlightOverlays);
   window.addEventListener('resize', updateHighlightOverlays);
 
-  // Ensamblador de PDF Buscable con /ActualText estándar para Emojis
+  // Ensamblador de PDF Buscable FHD (100% Lossless PNG sin submuestreo de color + capa de texto vectorial invisible)
   async function generateFallbackSearchablePdf() {
-    const { PDFDocument, StandardFonts, rgb, setTextRenderingMode, TextRenderingMode, PDFName, PDFString, PDFHexString, PDFOperator } = PDFLib;
+    const { PDFDocument, StandardFonts, rgb, setTextRenderingMode, TextRenderingMode, PDFName, PDFString } = PDFLib;
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    const useJpeg = (mainCanvas.width * mainCanvas.height > 1500000) || finalHeight > 2000;
+    // Usar PNG sin pérdida (lossless FHD 4:4:4) salvo capturas multipágina gigantes (> 16 MP)
+    const useJpeg = (mainCanvas.width * mainCanvas.height > 16000000);
     const mimeType = useJpeg ? 'image/jpeg' : 'image/png';
-    const imgDataUrl = mainCanvas.toDataURL(mimeType, 0.92);
+    const imgDataUrl = useJpeg ? mainCanvas.toDataURL('image/jpeg', 0.98) : mainCanvas.toDataURL('image/png');
     const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
     const embeddedImage = useJpeg ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
 
@@ -1004,13 +1014,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     return await pdfDoc.save({ useObjectStreams: true });
   }
 
-  // Generador de PDF Vectorial Puro Fiel (~50KB) o Vectorial Ligero 30% (~10-15KB)
-  // Fondo real, imágenes/avatares del post incrustados y texto nativo 100% vectorial
+  // Generador de PDF Vectorial Puro Fiel o Vectorial Ligero (30%)
+  // Conserva intactos iconos, badges, círculos numerados y bloques de código, limpia el fondo local con precisión
+  // y dibuja texto 100% vectorial con escalado horizontal exacto (/Tz) sin alterar tamaños ni elementos.
   async function generateCleanVectorPdf(isCompressed = false) {
-    const { PDFDocument, StandardFonts, rgb, PDFString, PDFName } = PDFLib;
+    const { PDFDocument, StandardFonts, rgb, PDFString, PDFName, PDFOperator, PDFNumber, setTextRenderingMode, TextRenderingMode } = PDFLib;
     const pdfDoc = await PDFDocument.create();
     const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const italicFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+    const boldItalicFont = await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique);
 
     const page = pdfDoc.addPage([finalWidth, finalHeight]);
 
@@ -1030,7 +1043,47 @@ document.addEventListener('DOMContentLoaded', async () => {
       return defaultColor;
     }
 
-    // 1. Incrustar Lienzo Gráfico Fiel Completo (máxima fidelidad visual de avatares, fotos e iconos)
+    function getCssLuminance(cssStr) {
+      if (!cssStr) return 0.9;
+      const m = cssStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (!m) return 0.9;
+      const r = parseInt(m[1], 10);
+      const g = parseInt(m[2], 10);
+      const b = parseInt(m[3], 10);
+      return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    }
+
+    const ICON_LIGATURES = new Set([
+      'warning', 'spark', 'mic', 'search', 'menu', 'close', 'check', 'add', 'keep',
+      'tune', 'more_vert', 'more_horiz', 'expand_more', 'expand_less', 'chevron_right',
+      'chevron_left', 'arrow_downward', 'arrow_upward', 'arrow_forward', 'arrow_back',
+      'push_pin', 'edit_square', 'filter_list', 'content_copy', 'thumb_up', 'thumb_down',
+      'share', 'refresh', 'settings', 'Send', 'send', 'info', 'error', 'help'
+    ]);
+
+    function isIconWord(w) {
+      if (!w || !w.text) return true;
+      const t = w.text.trim();
+      if (!t) return true;
+      if (w.width <= 42 && w.height <= 42) {
+        if (ICON_LIGATURES.has(t)) return true;
+        if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(t)) return true;
+      }
+      return false;
+    }
+
+    function shouldKeepOnCanvas(w) {
+      if (w.preserveVisual || w.hasUnicode) return true;
+      const t = (w.text || '').trim();
+      if (!t) return true;
+      if ( sanitizeForWinAnsi(t).trim() !== t ) return true;
+      if (t.length <= 2 && /^[0-9+✓✔✗✘!▼▲►◄↓↑←→]+$/.test(t) && w.width <= 36 && w.height <= 36) {
+        return true;
+      }
+      return false;
+    }
+
+    // 1. Incrustar Lienzo Gráfico con limpieza local inteligente solo en palabras vectorizables normales
     if (mainCanvas && mainCanvas.width > 0 && mainCanvas.height > 0) {
       const bgCanvas = document.createElement('canvas');
       bgCanvas.width = mainCanvas.width;
@@ -1041,49 +1094,76 @@ document.addEventListener('DOMContentLoaded', async () => {
       const scaleX = mainCanvas.width / finalWidth;
       const scaleY = mainCanvas.height / finalHeight;
 
-      // Obtener el color de fondo exacto para limpiar el texto raster original de la captura
-      let bgCssColor = captureData.backgroundColor;
-      if (!bgCssColor || bgCssColor === 'transparent' || bgCssColor.startsWith('rgba(0, 0, 0, 0)')) {
+      let fallbackBgCss = captureData.backgroundColor;
+      if (!fallbackBgCss || fallbackBgCss === 'transparent' || fallbackBgCss.startsWith('rgba(0, 0, 0, 0)')) {
         let lightWordCount = 0;
         let totalCount = 0;
         for (const w of normalizedWords.slice(0, 40)) {
           if (!w.color) continue;
-          const m = w.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-          if (m) {
-            const r = parseInt(m[1], 10);
-            const g = parseInt(m[2], 10);
-            const b = parseInt(m[3], 10);
-            const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-            if (lum > 0.6) lightWordCount++;
-            totalCount++;
-          }
+          if (getCssLuminance(w.color) > 0.6) lightWordCount++;
+          totalCount++;
         }
-        if (totalCount > 0 && lightWordCount / totalCount > 0.45) {
-          bgCssColor = 'rgb(36, 37, 38)';
-        } else {
-          bgCssColor = 'rgb(255, 255, 255)';
-        }
+        fallbackBgCss = (totalCount > 0 && lightWordCount / totalCount > 0.45)
+          ? 'rgb(19, 19, 20)'
+          : 'rgb(255, 255, 255)';
       }
 
-      // Limpiar (rellenar) las zonas donde hay texto para eliminar las letras raster de la pantalla
-      // Muestrear el color local de fondo alrededor de cada palabra para respetar tarjetas, burbujas y banners
       const mainCtx = mainCanvas.getContext('2d', { willReadFrequently: true });
+      const cw = mainCanvas.width;
+      const ch = mainCanvas.height;
+
       for (const w of normalizedWords) {
-        if (!w.text || !w.text.trim()) continue;
-        const padX = Math.round(2 * scaleX);
-        const padY = Math.round(2 * scaleY);
+        if (isIconWord(w) || shouldKeepOnCanvas(w)) continue;
+
+        const padX = Math.max(1, Math.round(1 * scaleX));
+        const padY = Math.max(1, Math.round(1 * scaleY));
         const targetX = Math.max(0, Math.round(w.x * scaleX) - padX);
         const targetY = Math.max(0, Math.round(w.y * scaleY) - padY);
-        const targetW = Math.round(w.width * scaleX) + padX * 2;
-        const targetH = Math.round(w.height * scaleY) + padY * 2;
+        const targetW = Math.min(cw - targetX, Math.round(w.width * scaleX) + padX * 2);
+        const targetH = Math.min(ch - targetY, Math.round(w.height * scaleY) + padY * 2);
 
-        let localColor = bgCssColor;
+        const isLightText = getCssLuminance(w.color) > 0.5;
+        let localColor = w.bgColor || fallbackBgCss;
+
+        // Muestrear 8 puntos perimetrales fuera de la palabra y elegir el píxel de mayor contraste con la letra
+        // (el más oscuro si el texto es claro, o el más claro si el texto es oscuro) para jamás pisar otra letra
         try {
-          const sampleX = Math.max(0, Math.min(mainCanvas.width - 1, targetX - 2));
-          const sampleY = Math.max(0, Math.min(mainCanvas.height - 1, targetY - 2));
-          const pix = mainCtx.getImageData(sampleX, sampleY, 1, 1).data;
-          if (pix[3] > 0) {
-            localColor = `rgb(${pix[0]}, ${pix[1]}, ${pix[2]})`;
+          const samplePoints = [
+            [targetX - 2, targetY - 2],
+            [targetX + Math.floor(targetW / 2), targetY - 2],
+            [targetX + targetW + 1, targetY - 2],
+            [targetX - 2, targetY + Math.floor(targetH / 2)],
+            [targetX + targetW + 1, targetY + Math.floor(targetH / 2)],
+            [targetX - 2, targetY + targetH + 1],
+            [targetX + Math.floor(targetW / 2), targetY + targetH + 1],
+            [targetX + targetW + 1, targetY + targetH + 1]
+          ];
+
+          let bestLum = isLightText ? 999 : -1;
+          let bestRgb = null;
+
+          for (const [sx, sy] of samplePoints) {
+            const cx = Math.max(0, Math.min(cw - 1, sx));
+            const cy = Math.max(0, Math.min(ch - 1, sy));
+            const pix = mainCtx.getImageData(cx, cy, 1, 1).data;
+            if (pix[3] > 200) {
+              const lum = (0.299 * pix[0] + 0.587 * pix[1] + 0.114 * pix[2]) / 255;
+              if (isLightText) {
+                if (lum < bestLum) {
+                  bestLum = lum;
+                  bestRgb = `rgb(${pix[0]}, ${pix[1]}, ${pix[2]})`;
+                }
+              } else {
+                if (lum > bestLum) {
+                  bestLum = lum;
+                  bestRgb = `rgb(${pix[0]}, ${pix[1]}, ${pix[2]})`;
+                }
+              }
+            }
+          }
+
+          if (bestRgb) {
+            localColor = bestRgb;
           }
         } catch (e) {}
 
@@ -1091,18 +1171,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         bgCtx.fillRect(targetX, targetY, targetW, targetH);
       }
 
-      // Incrustar el lienzo gráfico: JPEG al 30% para modo ligero, o PNG lossless / JPEG al 94% para modo fiel
       let embeddedBg;
       if (isCompressed) {
         const imgDataUrl = bgCanvas.toDataURL('image/jpeg', 0.30);
         const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
         embeddedBg = await pdfDoc.embedJpg(imgBytes);
       } else {
-        const isHuge = (mainCanvas.width * mainCanvas.height > 1800000);
-        const mimeType = isHuge ? 'image/jpeg' : 'image/png';
-        const imgDataUrl = bgCanvas.toDataURL(mimeType, 0.94);
-        const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
-        embeddedBg = isHuge ? await pdfDoc.embedJpg(imgBytes) : await pdfDoc.embedPng(imgBytes);
+        // Comparar PNG sin pérdida vs JPEG 90% y elegir el más eficiente (en interfaces oscuras PNG pesa ~70KB vs ~690KB en JPEG)
+        const pngDataUrl = bgCanvas.toDataURL('image/png');
+        const jpgDataUrl = bgCanvas.toDataURL('image/jpeg', 0.90);
+        const usePng = (pngDataUrl.length <= jpgDataUrl.length * 1.45);
+        if (usePng) {
+          const imgBytes = await (await fetch(pngDataUrl)).arrayBuffer();
+          embeddedBg = await pdfDoc.embedPng(imgBytes);
+        } else {
+          const imgBytes = await (await fetch(jpgDataUrl)).arrayBuffer();
+          embeddedBg = await pdfDoc.embedJpg(imgBytes);
+        }
       }
 
       page.drawImage(embeddedBg, {
@@ -1117,26 +1202,57 @@ document.addEventListener('DOMContentLoaded', async () => {
         y: 0,
         width: finalWidth,
         height: finalHeight,
-        color: rgb(36 / 255, 37 / 255, 38 / 255)
+        color: rgb(19 / 255, 19 / 255, 20 / 255)
       });
     }
 
-    // 2. Agrupar palabras en frases continuas para un espaciado tipográfico natural y perfecto
+    // 2. Ordenar palabras en flujo natural de lectura
     const sortedWords = [...normalizedWords].sort((a, b) => {
       const dy = a.y - b.y;
       if (Math.abs(dy) > 5) return dy;
       return a.x - b.x;
     });
 
+    // 2a. Para los elementos preservados visualmente en el lienzo (badges, círculos 1-2-3, pills de código),
+    // agregar capa de texto invisible para que sigan siendo 100% buscables y seleccionables sin alterar su diseño
+    page.pushOperators(setTextRenderingMode(TextRenderingMode.Invisible));
+    for (const w of sortedWords) {
+      if (isIconWord(w) || !shouldKeepOnCanvas(w)) continue;
+      const clean = sanitizeForWinAnsi(w.text).trim();
+      if (!clean) continue;
+      const pdfX = w.x;
+      const pdfY = finalHeight - (w.y + Math.round(w.height * 0.8));
+      const fSize = Math.max(4, Math.round((w.fontSize || w.height * 0.78) * 0.9));
+      try {
+        page.drawText(clean + ' ', {
+          x: pdfX,
+          y: pdfY,
+          size: fSize,
+          font: regularFont,
+          color: rgb(0, 0, 0)
+        });
+      } catch (e) {}
+    }
+    page.pushOperators(setTextRenderingMode(TextRenderingMode.Fill));
+
+    // 2b. Agrupar palabras normales en segmentos continuos del mismo estilo
     const segments = [];
     let currentSeg = null;
 
     for (const w of sortedWords) {
-      if (!w.text || !w.text.trim()) continue;
+      if (isIconWord(w) || shouldKeepOnCanvas(w)) {
+        if (currentSeg) {
+          segments.push(currentSeg);
+          currentSeg = null;
+        }
+        continue;
+      }
+
       const cleanWord = sanitizeForWinAnsi(w.text).trim();
       if (!cleanWord) continue;
 
       const isBold = !!(w.fontWeight && (parseInt(w.fontWeight, 10) >= 600 || w.fontWeight === 'bold'));
+      const isItalic = !!(w.fontStyle && (w.fontStyle === 'italic' || w.fontStyle === 'oblique'));
       const fontSize = Math.max(5, w.fontSize || Math.round(w.height * 0.8));
       const color = w.color || 'rgb(0,0,0)';
 
@@ -1149,13 +1265,19 @@ document.addEventListener('DOMContentLoaded', async () => {
           height: w.height,
           fontSize,
           isBold,
+          isItalic,
           color
         };
       } else {
         const sameLine = Math.abs(w.y - currentSeg.y) <= Math.max(5, currentSeg.height * 0.45);
-        const sameStyle = (currentSeg.isBold === isBold) && (currentSeg.color === color) && (Math.abs(currentSeg.fontSize - fontSize) <= 2);
+        const sameStyle = (
+          currentSeg.isBold === isBold &&
+          currentSeg.isItalic === isItalic &&
+          currentSeg.color === color &&
+          Math.abs(currentSeg.fontSize - fontSize) <= 1.5
+        );
         const gap = w.x - currentSeg.endX;
-        const isContinuous = (gap >= -4 && gap <= Math.max(16, fontSize * 1.3));
+        const isContinuous = (gap >= -3 && gap <= Math.max(14, fontSize * 1.15));
 
         if (sameLine && sameStyle && isContinuous) {
           currentSeg.words.push(cleanWord);
@@ -1171,6 +1293,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             height: w.height,
             fontSize,
             isBold,
+            isItalic,
             color
           };
         }
@@ -1180,52 +1303,40 @@ document.addEventListener('DOMContentLoaded', async () => {
       segments.push(currentSeg);
     }
 
-    // 3. Dibujar cada segmento continuo con espaciado natural y control de colisión horizontal
-    let lastLineY = -999;
-    let nextMinX = 0;
-
+    // 3. Dibujar cada segmento vectorial en su coordenada exacta usando escalado horizontal nativo (/Tz)
+    // Esto mantiene el tamaño vertical de fuente 100% constante entre renglones y clava el ancho exacto del DOM
     for (const seg of segments) {
       const lineText = seg.words.join(' ');
       if (!lineText) continue;
 
-      const font = seg.isBold ? boldFont : regularFont;
+      let font = regularFont;
+      if (seg.isBold && seg.isItalic) font = boldItalicFont;
+      else if (seg.isBold) font = boldFont;
+      else if (seg.isItalic) font = italicFont;
+
       const textColor = parseCssColor(seg.color, rgb(0.1, 0.1, 0.1));
-
-      const isSameLineAsPrev = Math.abs(seg.y - lastLineY) <= Math.max(5, seg.height * 0.45);
-      let pdfX = seg.x;
-
-      // Si otro segmento (ej. un enlace con distinto color) terminó antes en este renglón,
-      // asegurar que nunca se toquen ni se peguen las palabras
-      if (isSameLineAsPrev && pdfX < nextMinX) {
-        pdfX = nextMinX;
-      }
-
-      const baselineOffset = Math.round(seg.height * 0.82);
+      const pdfX = seg.x;
+      const baselineOffset = Math.round(seg.height * 0.80);
       const pdfY = finalHeight - (seg.y + baselineOffset);
-      let fontSize = seg.fontSize;
+      const fontSize = Math.max(5, +(seg.fontSize * 0.95).toFixed(2));
 
       let textWidth = 0;
       try {
         textWidth = font.widthOfTextAtSize(lineText, fontSize);
       } catch (e) {
-        const sanitizedLine = lineText.replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ').trim();
-        if (!sanitizedLine) continue;
-        try {
-          textWidth = font.widthOfTextAtSize(sanitizedLine, fontSize);
-        } catch (e2) {
-          continue;
-        }
+        continue;
       }
 
       const segWidth = seg.endX - seg.x;
-      if (segWidth > 0 && textWidth > segWidth * 1.15) {
-        fontSize = Math.max(5, Math.floor(fontSize * (segWidth / textWidth)));
-        try {
-          textWidth = font.widthOfTextAtSize(lineText, fontSize);
-        } catch (e3) {}
+      let hScale = 100;
+      if (segWidth > 3 && textWidth > 0) {
+        hScale = Math.max(76, Math.min(112, (segWidth / textWidth) * 100));
       }
 
       try {
+        if (Math.abs(hScale - 100) > 0.5) {
+          page.pushOperators(PDFOperator.of('Tz', [PDFNumber.of(Number(hScale.toFixed(1)))]));
+        }
         page.drawText(lineText, {
           x: pdfX,
           y: pdfY,
@@ -1233,12 +1344,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           font,
           color: textColor
         });
+        if (Math.abs(hScale - 100) > 0.5) {
+          page.pushOperators(PDFOperator.of('Tz', [PDFNumber.of(100)]));
+        }
       } catch (err) {
         console.warn('Error dibujando segmento de texto vectorial:', lineText, err);
       }
-
-      lastLineY = seg.y;
-      nextMinX = pdfX + textWidth + Math.max(5, Math.round(fontSize * 0.32));
     }
 
     // 4. Agregar hipervínculos activos
