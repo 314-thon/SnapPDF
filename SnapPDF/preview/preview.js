@@ -177,7 +177,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       captureData.cdpBytes = rawBytes;
       captureData.pdfBytes = rawBytes;
 
-      statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito)';
+      statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito ~500KB)';
       vectorBadge.style.display = 'inline-flex';
       vectorBadge.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -191,7 +191,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const hybridVectorBytes = await generateFallbackSearchablePdf();
       captureData.rasterHdBytes = hybridVectorBytes;
       captureData.pdfBytes = hybridVectorBytes;
-      statEngineEl.textContent = '📸 Fiel Buscable (~20KB)';
+      statEngineEl.textContent = '📸 Fiel Buscable HD (~150KB)';
       if (pdfEngineSelect) pdfEngineSelect.value = 'vector-hybrid';
     }
 
@@ -219,13 +219,13 @@ document.addEventListener('DOMContentLoaded', async () => {
               captureData.cdpBytes = rawBytes;
             }
             captureData.pdfBytes = captureData.cdpBytes || captureData.rasterHdBytes;
-            statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito)';
+            statEngineEl.textContent = '⚡ Vectorial Nativo Nítido (Zoom Infinito ~500KB)';
           } else if (mode === 'vector-hybrid' || mode === 'raster-hd') {
             if (!captureData.rasterHdBytes) {
               captureData.rasterHdBytes = await generateFallbackSearchablePdf();
             }
             captureData.pdfBytes = captureData.rasterHdBytes;
-            statEngineEl.textContent = '📸 Fiel Buscable (~20KB)';
+            statEngineEl.textContent = '📸 Fiel Buscable HD (~150KB)';
           } else if (mode === 'vector-clean') {
             if (!captureData.cleanVectorBytes) {
               captureData.cleanVectorBytes = await generateCleanVectorPdf();
@@ -800,9 +800,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     return await destDoc.save();
   }
 
-  // Recortar PDF vectorial al área del recuadro o viewport manteniendo vectores y links intactos
+  // Recortar PDF vectorial al área del recuadro o viewport y purgar imágenes ajenas del feed
   async function cropVectorPdf(srcData, cropBox, fullWidth, fullHeight) {
-    const { PDFDocument } = PDFLib;
+    const { PDFDocument, PDFName } = PDFLib;
     const pdfDoc = await PDFDocument.load(srcData);
     const page = pdfDoc.getPages()[0];
     const { width: srcPdfW, height: srcPdfH } = page.getSize();
@@ -820,6 +820,69 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Ajustar los límites visibles nativos del PDF sin clonar ni duplicar el stream
     page.setCropBox(pdfX, pdfY, targetW, targetH);
     page.setMediaBox(pdfX, pdfY, targetW, targetH);
+
+    // Optimización de peso: purgar XObjects (imágenes ajenas del feed) que caigan fuera del recuadro
+    try {
+      const cbLeft = pdfX - 20;
+      const cbBottom = pdfY - 20;
+      const cbRight = pdfX + targetW + 20;
+      const cbTop = pdfY + targetH + 20;
+
+      const contentsRef = page.node.get(PDFName.of('Contents'));
+      const contentsStream = pdfDoc.context.lookup(contentsRef);
+      if (contentsStream) {
+        const contentBytes = contentsStream.contents || (contentsStream.getContents && contentsStream.getContents());
+        if (contentBytes && contentsStream.dict?.get(PDFName.of('Filter'))?.name === 'FlateDecode') {
+          const ds = new DecompressionStream('deflate');
+          const writer = ds.writable.getWriter();
+          writer.write(contentBytes);
+          writer.close();
+          const decompressedBuf = await new Response(ds.readable).arrayBuffer();
+          const contentStr = new TextDecoder('latin1').decode(decompressedBuf);
+
+          const regex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm\s+([^qQ]*?)(\/[a-zA-Z0-9_-]+)\s+Do/g;
+          let match;
+          const keep = new Set();
+
+          while ((match = regex.exec(contentStr)) !== null) {
+            const a = parseFloat(match[1]);
+            const d = parseFloat(match[4]);
+            const e = parseFloat(match[5]);
+            const f = parseFloat(match[6]);
+            const keyWithSlash = match[8];
+
+            const minX = Math.min(e, e + a);
+            const maxX = Math.max(e, e + a);
+            const minY = Math.min(f, f + d);
+            const maxY = Math.max(f, f + d);
+
+            if (!(maxX < cbLeft || minX > cbRight || maxY < cbBottom || minY > cbTop)) {
+              keep.add(keyWithSlash);
+            }
+          }
+
+          const resources = page.node.get(PDFName.of('Resources'));
+          const xobjectsRef = resources ? resources.get(PDFName.of('XObject')) : null;
+          const xobjects = xobjectsRef ? pdfDoc.context.lookup(xobjectsRef) : null;
+
+          if (xobjects && xobjects.entries) {
+            xobjects.entries().forEach(([key, valRef]) => {
+              const keyStr = key.encodedName || key.toString();
+              if (!keep.has(keyStr)) {
+                const obj = pdfDoc.context.lookup(valRef);
+                if (obj && (obj.contents || obj.getContents)) {
+                  obj.contents = new Uint8Array(0);
+                  obj.dict.set(PDFName.of('Length'), pdfDoc.context.obj(0));
+                  obj.dict.delete(PDFName.of('Filter'));
+                }
+              }
+            });
+          }
+        }
+      }
+    } catch (purgeErr) {
+      console.warn('[SnapPDF] No se pudieron purgar imágenes fuera de límites:', purgeErr);
+    }
 
     return await pdfDoc.save({ useObjectStreams: true });
   }
