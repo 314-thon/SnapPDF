@@ -968,7 +968,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       color: bgRgb
     });
 
-    // 2. Incrustar imágenes locales (avatares, fotos de publicaciones) desde mainCanvas
+    // 2. Incrustar imágenes locales (avatares, fotos de publicaciones) desde mainCanvas con máxima nitidez
     const localImages = captureData.images || [];
     if (localImages.length > 0 && mainCanvas && mainCanvas.width > 0) {
       const scaleX = mainCanvas.width / finalWidth;
@@ -981,13 +981,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (imgInfo.x < 0 || imgInfo.y < 0 || imgInfo.x + iw > finalWidth || imgInfo.y + ih > finalHeight) continue;
 
         try {
-          const auxCanvas = document.createElement('canvas');
           const cropW = Math.round(iw * scaleX);
           const cropH = Math.round(ih * scaleY);
-          auxCanvas.width = Math.min(cropW, iw * 2);
-          auxCanvas.height = Math.min(cropH, ih * 2);
+          const auxCanvas = document.createElement('canvas');
+          auxCanvas.width = cropW;
+          auxCanvas.height = cropH;
 
           const auxCtx = auxCanvas.getContext('2d');
+          auxCtx.imageSmoothingEnabled = true;
+          auxCtx.imageSmoothingQuality = 'high';
           auxCtx.drawImage(
             mainCanvas,
             Math.round(imgInfo.x * scaleX),
@@ -996,14 +998,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             cropH,
             0,
             0,
-            auxCanvas.width,
-            auxCanvas.height
+            cropW,
+            cropH
           );
 
-          // Calidad JPEG 0.85 -> peso minúsculo (~2-5 KB por avatar/foto) y 0 CORS
-          const imgDataUrl = auxCanvas.toDataURL('image/jpeg', 0.85);
-          const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
-          const embeddedImg = await pdfDoc.embedJpg(imgBytes);
+          // Para avatares, logos, badges e iconos (<= 400x400): PNG sin pérdida (lossless).
+          // Es super nítido, sin artefactos de compresión JPEG y pesa apenas ~2 a 8 KB.
+          // Para fotos grandes del post: JPEG al 94% de calidad para no pixelar ni inflar peso.
+          let embeddedImg;
+          const isSmallGraphic = (iw <= 400 && ih <= 400);
+
+          if (isSmallGraphic) {
+            const imgDataUrl = auxCanvas.toDataURL('image/png');
+            const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
+            embeddedImg = await pdfDoc.embedPng(imgBytes);
+          } else {
+            const imgDataUrl = auxCanvas.toDataURL('image/jpeg', 0.94);
+            const imgBytes = await (await fetch(imgDataUrl)).arrayBuffer();
+            embeddedImg = await pdfDoc.embedJpg(imgBytes);
+          }
 
           const pdfImgX = imgInfo.x;
           const pdfImgY = finalHeight - (imgInfo.y + ih);
@@ -1020,46 +1033,98 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // 3. Dibujar texto vectorial nativo (zoom infinito, nítido y seleccionable)
+    // 3. Agrupar palabras en frases continuas para un espaciado tipográfico natural y perfecto
     const sortedWords = [...normalizedWords].sort((a, b) => {
       const dy = a.y - b.y;
       if (Math.abs(dy) > 5) return dy;
       return a.x - b.x;
     });
 
+    const segments = [];
+    let currentSeg = null;
+
     for (const w of sortedWords) {
       if (!w.text || !w.text.trim()) continue;
-      let clean = sanitizeForWinAnsi(w.text).trim();
-      if (!clean) continue;
+      const cleanWord = sanitizeForWinAnsi(w.text).trim();
+      if (!cleanWord) continue;
 
-      const isBold = w.fontWeight && (parseInt(w.fontWeight, 10) >= 600 || w.fontWeight === 'bold');
-      const font = isBold ? boldFont : regularFont;
-      const textColor = parseCssColor(w.color, rgb(0.1, 0.1, 0.1));
+      const isBold = !!(w.fontWeight && (parseInt(w.fontWeight, 10) >= 600 || w.fontWeight === 'bold'));
+      const fontSize = Math.max(5, w.fontSize || Math.round(w.height * 0.8));
+      const color = w.color || 'rgb(0,0,0)';
 
-      const pdfX = w.x;
-      const baselineOffset = Math.round(w.height * 0.82);
-      const pdfY = finalHeight - (w.y + baselineOffset);
-      let fontSize = Math.max(5, w.fontSize || Math.round(w.height * 0.8));
+      if (!currentSeg) {
+        currentSeg = {
+          words: [cleanWord],
+          x: w.x,
+          y: w.y,
+          endX: w.x + w.width,
+          height: w.height,
+          fontSize,
+          isBold,
+          color
+        };
+      } else {
+        const sameLine = Math.abs(w.y - currentSeg.y) <= Math.max(5, currentSeg.height * 0.45);
+        const sameStyle = (currentSeg.isBold === isBold) && (currentSeg.color === color) && (Math.abs(currentSeg.fontSize - fontSize) <= 2);
+        const gap = w.x - currentSeg.endX;
+        const isContinuous = (gap >= -4 && gap <= Math.max(16, fontSize * 1.3));
+
+        if (sameLine && sameStyle && isContinuous) {
+          currentSeg.words.push(cleanWord);
+          currentSeg.endX = w.x + w.width;
+          currentSeg.height = Math.max(currentSeg.height, w.height);
+        } else {
+          segments.push(currentSeg);
+          currentSeg = {
+            words: [cleanWord],
+            x: w.x,
+            y: w.y,
+            endX: w.x + w.width,
+            height: w.height,
+            fontSize,
+            isBold,
+            color
+          };
+        }
+      }
+    }
+    if (currentSeg) {
+      segments.push(currentSeg);
+    }
+
+    // Dibujar cada segmento continuo (zoom infinito nativo, sin huecos ni dobles espacios)
+    for (const seg of segments) {
+      const lineText = seg.words.join(' ');
+      if (!lineText) continue;
+
+      const font = seg.isBold ? boldFont : regularFont;
+      const textColor = parseCssColor(seg.color, rgb(0.1, 0.1, 0.1));
+
+      const pdfX = seg.x;
+      const baselineOffset = Math.round(seg.height * 0.82);
+      const pdfY = finalHeight - (seg.y + baselineOffset);
+      let fontSize = seg.fontSize;
 
       let textWidth = 0;
       try {
-        textWidth = font.widthOfTextAtSize(clean, fontSize);
+        textWidth = font.widthOfTextAtSize(lineText, fontSize);
       } catch (e) {
-        clean = clean.replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ').trim();
-        if (!clean) continue;
+        const sanitizedLine = lineText.replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ').trim();
+        if (!sanitizedLine) continue;
         try {
-          textWidth = font.widthOfTextAtSize(clean, fontSize);
+          textWidth = font.widthOfTextAtSize(sanitizedLine, fontSize);
         } catch (e2) {
           continue;
         }
       }
 
-      if (w.width > 0 && textWidth > w.width) {
-        fontSize = Math.max(5, Math.floor(fontSize * (w.width / textWidth)));
+      const segWidth = seg.endX - seg.x;
+      if (segWidth > 0 && textWidth > segWidth * 1.15) {
+        fontSize = Math.max(5, Math.floor(fontSize * (segWidth / textWidth)));
       }
 
       try {
-        page.drawText(clean, {
+        page.drawText(lineText, {
           x: pdfX,
           y: pdfY,
           size: fontSize,
@@ -1067,7 +1132,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           color: textColor
         });
       } catch (err) {
-        console.warn('Error dibujando texto vectorial limpio:', clean, err);
+        console.warn('Error dibujando segmento de texto vectorial:', lineText, err);
       }
     }
 
