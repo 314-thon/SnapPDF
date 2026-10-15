@@ -162,26 +162,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       layersCard.style.display = 'none';
     }
 
-    // Generar el PDF vectorial ultraliviano limpio por defecto (~30-60 KB)
-    loadingStatusText.textContent = 'Generando PDF vectorial ultraliviano...';
-    const cleanVectorBytes = await generateCleanVectorPdf();
-    captureData.cleanVectorBytes = cleanVectorBytes;
-    captureData.pdfBytes = cleanVectorBytes;
+    // Generar el PDF vectorial fiel por defecto (con fotos, fondos y texto vectorial nítido)
+    loadingStatusText.textContent = 'Generando PDF vectorial fiel de alta fidelidad...';
+    const hybridVectorBytes = await generateFallbackSearchablePdf();
+    captureData.rasterHdBytes = hybridVectorBytes;
+    captureData.pdfBytes = hybridVectorBytes;
 
-    activePdfBlob = new Blob([cleanVectorBytes], { type: 'application/pdf' });
+    activePdfBlob = new Blob([hybridVectorBytes], { type: 'application/pdf' });
     activePdfUrl = URL.createObjectURL(activePdfBlob);
 
-    statEngineEl.textContent = '⚡ Vectorial Puro (Ultraliviano ~50KB)';
+    statEngineEl.textContent = '🎯 Vectorial Fiel (Nativo + Fondos y Fotos)';
     vectorBadge.style.display = 'inline-flex';
     vectorBadge.innerHTML = `
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
       </svg>
-      Vectorial Puro Ultraliviano
+      PDF Vectorial Fiel
     `;
 
     // Escuchar cambio de modo en el selector de motor
     if (pdfEngineSelect) {
+      pdfEngineSelect.value = 'vector-hybrid';
       pdfEngineSelect.addEventListener('change', async () => {
         btnDownloadPdf.disabled = true;
         const prevText = btnDownloadPdf.innerHTML;
@@ -189,18 +190,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         try {
           const mode = pdfEngineSelect.value;
-          if (mode === 'vector-clean') {
-            if (!captureData.cleanVectorBytes) {
-              captureData.cleanVectorBytes = await generateCleanVectorPdf();
-            }
-            captureData.pdfBytes = captureData.cleanVectorBytes;
-            statEngineEl.textContent = '⚡ Vectorial Puro (Ultraliviano ~50KB)';
-          } else if (mode === 'raster-hd') {
+          if (mode === 'vector-hybrid' || mode === 'raster-hd') {
             if (!captureData.rasterHdBytes) {
               captureData.rasterHdBytes = await generateFallbackSearchablePdf();
             }
             captureData.pdfBytes = captureData.rasterHdBytes;
-            statEngineEl.textContent = '📸 Ultra HD Fiel Multicapa';
+            statEngineEl.textContent = '🎯 Vectorial Fiel (Nativo + Fondos y Fotos)';
+          } else if (mode === 'vector-clean') {
+            if (!captureData.cleanVectorBytes) {
+              captureData.cleanVectorBytes = await generateCleanVectorPdf();
+            }
+            captureData.pdfBytes = captureData.cleanVectorBytes;
+            statEngineEl.textContent = '⚡ Vectorial Minimalista (Solo Texto ~40KB)';
           } else if (mode === 'cdp-full') {
             if (!captureData.cdpBytes && captureData.isVector && captureData.pdfBase64) {
               const binaryString = atob(captureData.pdfBase64);
@@ -212,7 +213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               }
               captureData.cdpBytes = rawBytes;
             }
-            captureData.pdfBytes = captureData.cdpBytes || captureData.cleanVectorBytes;
+            captureData.pdfBytes = captureData.cdpBytes || captureData.rasterHdBytes;
             statEngineEl.textContent = '🌐 CDP Chromium (Completo con assets)';
           }
 
@@ -389,7 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Ensamblador de PDF Buscable con /ActualText estándar para Emojis
   async function generateFallbackSearchablePdf() {
-    const { PDFDocument, StandardFonts, setTextRenderingMode, TextRenderingMode, PDFName, PDFString, PDFHexString, PDFOperator } = PDFLib;
+    const { PDFDocument, StandardFonts, rgb, setTextRenderingMode, TextRenderingMode, PDFName, PDFString, PDFHexString, PDFOperator } = PDFLib;
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
@@ -407,7 +408,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       height: finalHeight
     });
 
-    page.pushOperators(setTextRenderingMode(TextRenderingMode.Invisible));
+    // Renderizado de texto vectorial visible 100% nítido (no invisible)
+    page.pushOperators(setTextRenderingMode(TextRenderingMode.Fill));
+
+    const regularFont = font;
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    function parseCssColor(cssStr) {
+      if (!cssStr) return rgb(0.1, 0.1, 0.1);
+      const m = cssStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (m) {
+        return rgb(parseInt(m[1], 10) / 255, parseInt(m[2], 10) / 255, parseInt(m[3], 10) / 255);
+      }
+      return rgb(0.1, 0.1, 0.1);
+    }
 
     // Ordenar palabras en flujo natural de lectura (arriba hacia abajo, izquierda a derecha)
     const sortedWords = [...normalizedWords].sort((a, b) => {
@@ -423,46 +437,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       let clean = sanitizeForWinAnsi(w.text).trim();
       if (!clean) continue;
 
+      const isBold = w.fontWeight && (parseInt(w.fontWeight, 10) >= 600 || w.fontWeight === 'bold');
+      const activeFont = isBold ? boldFont : regularFont;
+      const textColor = parseCssColor(w.color);
+
       const pdfX = w.x;
       const pdfY = finalHeight - (w.y + w.height);
-      let fontSize = Math.max(4, Math.round(w.height * 0.75));
+      let fontSize = Math.max(4, Math.round(w.height * 0.78));
 
-      // Verificar que el texto pueda ser codificado por Helvetica en WinAnsi
       let textWidth = 0;
       try {
-        textWidth = font.widthOfTextAtSize(clean, fontSize);
+        textWidth = activeFont.widthOfTextAtSize(clean, fontSize);
       } catch (e) {
         clean = clean.replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ').trim();
         if (!clean) continue;
         try {
-          textWidth = font.widthOfTextAtSize(clean, fontSize);
+          textWidth = activeFont.widthOfTextAtSize(clean, fontSize);
         } catch (e2) {
           continue;
         }
       }
 
-      // 1. Evitar que la palabra sea más ancha que su caja en el DOM para no invadir el margen
       if (w.width > 0 && textWidth > w.width) {
         fontSize = Math.max(4, Math.floor(fontSize * (w.width / textWidth)));
-        textWidth = font.widthOfTextAtSize(clean, fontSize);
       }
 
-      // 2. Preservar separación entre palabras contiguas en la misma línea:
-      // Solo si en el DOM existía un espacio real entre ambas (domGap >= 2).
-      // Si domGap < 2 (como dentro de fragmentos continuos o puntuación pegada), NO forzar separación.
       const nextW = sortedWords[i + 1];
-      if (nextW && Math.abs(nextW.y - w.y) <= 5 && nextW.x > w.x) {
-        const domGap = nextW.x - (w.x + (w.width || textWidth));
-        const nextIsPunctuation = /^[,.:;!?)]/.test((nextW.text || '').trim());
-        if (domGap >= 2 && !nextIsPunctuation) {
-          const availWidth = nextW.x - w.x;
-          if (textWidth > availWidth - 3.5 && availWidth > 5) {
-            fontSize = Math.max(4, Math.floor(fontSize * ((availWidth - 3.5) / textWidth)));
-          }
-        }
-      }
-
-      // 3. Si es la última palabra de la línea, asegurar un espacio para que no se pegue con la línea siguiente
       const isLineEnd = !nextW || (nextW.y > w.y + 5);
       const textToDraw = isLineEnd ? (clean + ' ') : clean;
 
@@ -471,14 +471,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           x: pdfX,
           y: pdfY,
           size: fontSize,
-          font
+          font: activeFont,
+          color: textColor
         });
       } catch (err) {
-        console.warn('Error dibujando palabra en capa OCR invisible:', clean, err);
+        console.warn('Error dibujando palabra vectorial:', clean, err);
       }
     }
-
-    page.pushOperators(setTextRenderingMode(TextRenderingMode.Fill));
 
     const annotRefs = [];
     normalizedLinks.forEach(l => {
