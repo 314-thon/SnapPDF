@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statEngineEl = document.getElementById('statEngine');
   const statDimensionsEl = document.getElementById('statDimensions');
   const statWordsEl = document.getElementById('statWords');
+  const statPdfSizeEl = document.getElementById('statPdfSize');
 
   const vectorBadge = document.getElementById('vectorBadge');
   const layersCard = document.getElementById('layersCard');
@@ -41,6 +42,38 @@ document.addEventListener('DOMContentLoaded', async () => {
   let activePdfBlob = null;
   let activePdfUrl = null;
   let currentLang = 'es';
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function updateEngineOptionLabels() {
+    if (!pdfEngineSelect) return;
+
+    const optClean = pdfEngineSelect.querySelector('option[value="vector-clean"]');
+    const optHybrid = pdfEngineSelect.querySelector('option[value="vector-hybrid"]');
+    const optNative = pdfEngineSelect.querySelector('option[value="vector-native"]');
+
+    if (optClean) {
+      const sizeStr = captureData?.cleanVectorBytes ? ` (${formatBytes(captureData.cleanVectorBytes.length)})` : '';
+      optClean.textContent = `⚡ Vectorial Puro Fiel${sizeStr}`;
+    }
+    if (optHybrid) {
+      const sizeStr = captureData?.rasterHdBytes ? ` (${formatBytes(captureData.rasterHdBytes.length)})` : '';
+      optHybrid.textContent = `📸 Fiel Buscable HD${sizeStr}`;
+    }
+    if (optNative) {
+      const sizeStr = captureData?.cdpBytes ? ` (${formatBytes(captureData.cdpBytes.length)})` : '';
+      optNative.textContent = `🖨️ Chromium CDP Print${sizeStr}`;
+    }
+
+    if (activePdfBlob && statPdfSizeEl) {
+      statPdfSizeEl.textContent = formatBytes(activePdfBlob.size);
+    }
+  }
 
   // Inicializar i18n
   currentLang = await getCurrentLanguage();
@@ -162,6 +195,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       layersCard.style.display = 'none';
     }
 
+    // Si viene CDP de Chromium disponible, calcular su tamaño recortado de inmediato
+    if (captureData.isVector && captureData.pdfBase64 && !captureData.cdpBytes) {
+      try {
+        const binaryString = atob(captureData.pdfBase64);
+        const len = binaryString.length;
+        let rawBytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) rawBytes[i] = binaryString.charCodeAt(i);
+        if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
+          rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
+        }
+        captureData.cdpBytes = rawBytes;
+      } catch (cdpErr) {
+        console.warn('Error precargando CDP bytes:', cdpErr);
+      }
+    }
+
     // Habilitar o deshabilitar opción vector-native en el dropdown según disponibilidad
     if (pdfEngineSelect) {
       const nativeOpt = pdfEngineSelect.querySelector('option[value="vector-native"]');
@@ -170,14 +219,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Priorizar motor Vectorial Puro Fiel (~50KB) si hay palabras cosechadas
+    // Priorizar motor Vectorial Puro Fiel si hay palabras cosechadas
     if (normalizedWords && normalizedWords.length > 0) {
       loadingStatusText.textContent = 'Generando PDF vectorial puro fiel...';
       const cleanVectorBytes = await generateCleanVectorPdf();
       captureData.cleanVectorBytes = cleanVectorBytes;
       captureData.pdfBytes = cleanVectorBytes;
 
-      statEngineEl.textContent = '⚡ Vectorial Puro Fiel (~50KB)';
+      statEngineEl.textContent = `⚡ Vectorial Puro Fiel (${formatBytes(cleanVectorBytes.length)})`;
       vectorBadge.style.display = 'inline-flex';
       vectorBadge.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -186,21 +235,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         PDF Vectorial Fiel
       `;
       if (pdfEngineSelect) pdfEngineSelect.value = 'vector-clean';
-    } else if (captureData.isVector && captureData.pdfBase64) {
-      loadingStatusText.textContent = 'Procesando PDF vectorial nativo de Chromium...';
-      const binaryString = atob(captureData.pdfBase64);
-      const len = binaryString.length;
-      let rawBytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) rawBytes[i] = binaryString.charCodeAt(i);
-
-      if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
-        rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
-      }
-
-      captureData.cdpBytes = rawBytes;
-      captureData.pdfBytes = rawBytes;
-
-      statEngineEl.textContent = '🖨️ Chromium CDP Print (~1MB)';
+    } else if (captureData.cdpBytes) {
+      captureData.pdfBytes = captureData.cdpBytes;
+      statEngineEl.textContent = `🖨️ Chromium CDP Print (${formatBytes(captureData.cdpBytes.length)})`;
       vectorBadge.style.display = 'inline-flex';
       if (pdfEngineSelect) pdfEngineSelect.value = 'vector-native';
     } else {
@@ -208,12 +245,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       const hybridVectorBytes = await generateFallbackSearchablePdf();
       captureData.rasterHdBytes = hybridVectorBytes;
       captureData.pdfBytes = hybridVectorBytes;
-      statEngineEl.textContent = '📸 Fiel Buscable HD (~150KB)';
+      statEngineEl.textContent = `📸 Fiel Buscable HD (${formatBytes(hybridVectorBytes.length)})`;
       if (pdfEngineSelect) pdfEngineSelect.value = 'vector-hybrid';
     }
 
     activePdfBlob = new Blob([captureData.pdfBytes], { type: 'application/pdf' });
     activePdfUrl = URL.createObjectURL(activePdfBlob);
+
+    // Actualizar labels con los tamaños reales medidos
+    updateEngineOptionLabels();
+
+    // Calcular de fondo los otros motores para que el desplegable muestre los pesos reales de todos
+    setTimeout(async () => {
+      try {
+        if (!captureData.rasterHdBytes && hasImagePayload) {
+          captureData.rasterHdBytes = await generateFallbackSearchablePdf();
+          updateEngineOptionLabels();
+        }
+      } catch (bgErr) {
+        console.warn('Error calculando tamaño de motor de fondo:', bgErr);
+      }
+    }, 100);
 
     // Escuchar cambio de modo en el selector de motor
     if (pdfEngineSelect) {
@@ -229,13 +281,13 @@ document.addEventListener('DOMContentLoaded', async () => {
               captureData.cleanVectorBytes = await generateCleanVectorPdf();
             }
             captureData.pdfBytes = captureData.cleanVectorBytes;
-            statEngineEl.textContent = '⚡ Vectorial Puro Fiel (~50KB)';
+            statEngineEl.textContent = `⚡ Vectorial Puro Fiel (${formatBytes(captureData.pdfBytes.length)})`;
           } else if (mode === 'vector-hybrid' || mode === 'raster-hd') {
             if (!captureData.rasterHdBytes) {
               captureData.rasterHdBytes = await generateFallbackSearchablePdf();
             }
             captureData.pdfBytes = captureData.rasterHdBytes;
-            statEngineEl.textContent = '📸 Fiel Buscable HD (~150KB)';
+            statEngineEl.textContent = `📸 Fiel Buscable HD (${formatBytes(captureData.pdfBytes.length)})`;
           } else if (mode === 'vector-native' || mode === 'cdp-full') {
             if (!captureData.cdpBytes && captureData.isVector && captureData.pdfBase64) {
               const binaryString = atob(captureData.pdfBase64);
@@ -248,7 +300,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               captureData.cdpBytes = rawBytes;
             }
             captureData.pdfBytes = captureData.cdpBytes || captureData.rasterHdBytes;
-            statEngineEl.textContent = '🖨️ Chromium CDP Print (~1MB)';
+            statEngineEl.textContent = `🖨️ Chromium CDP Print (${formatBytes(captureData.pdfBytes.length)})`;
           }
 
           let finalBytes = captureData.pdfBytes;
@@ -260,6 +312,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           activePdfBlob = new Blob([finalBytes], { type: 'application/pdf' });
           activePdfUrl = URL.createObjectURL(activePdfBlob);
           pdfPreviewFrame.src = activePdfUrl;
+
+          updateEngineOptionLabels();
         } catch (switchErr) {
           console.error('Error cambiando motor de PDF:', switchErr);
         } finally {

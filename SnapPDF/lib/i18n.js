@@ -39,6 +39,7 @@ const SNAP_TRANSLATIONS = {
     statEngineLabel: "Motor:",
     statDimensionsLabel: "Dimensiones:",
     statWordsLabel: "Texto / Enlaces:",
+    statSizeLabel: "Peso del PDF:",
     wordsText: "{words} palabras (Texto & Emojis)",
     
     layersTitle: "Inspección de Capas",
@@ -94,6 +95,7 @@ const SNAP_TRANSLATIONS = {
     statEngineLabel: "Engine:",
     statDimensionsLabel: "Dimensions:",
     statWordsLabel: "Text / Links:",
+    statSizeLabel: "PDF File Size:",
     wordsText: "{words} words (Text & Emojis)",
     
     layersTitle: "Layer Inspection",
@@ -149,6 +151,7 @@ const SNAP_TRANSLATIONS = {
     statEngineLabel: "Motor:",
     statDimensionsLabel: "Dimensões:",
     statWordsLabel: "Texto / Links:",
+    statSizeLabel: "Tamanho do PDF:",
     wordsText: "{words} palavras (Texto e Emojis)",
     
     layersTitle: "Inspeção de Camadas",
@@ -204,6 +207,7 @@ const SNAP_TRANSLATIONS = {
     statEngineLabel: "エンジン:",
     statDimensionsLabel: "解像度:",
     statWordsLabel: "テキスト / リンク:",
+    statSizeLabel: "PDFファイルサイズ:",
     wordsText: "{words} 単語 (テキスト & 絵文字)",
     
     layersTitle: "レイヤー確認",
@@ -259,6 +263,7 @@ const SNAP_TRANSLATIONS = {
     statEngineLabel: "엔진:",
     statDimensionsLabel: "크기:",
     statWordsLabel: "텍스트 / 링크:",
+    statSizeLabel: "PDF 파일 크기:",
     wordsText: "{words}개 단어 (텍스트 및 이모지)",
     
     layersTitle: "레이어 검사",
