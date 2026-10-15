@@ -671,6 +671,12 @@
         slices,
         finalWidth: rectW,
         finalHeight: rectH,
+        cropBox: {
+          x: rectX,
+          y: rectY,
+          width: rectW,
+          height: rectH
+        },
         words: words.map(w => ({ ...w, x: w.x - rectX, y: w.y - rectY })),
         links: links.map(l => ({ ...l, x: l.x - rectX, y: l.y - rectY })),
         title: document.title || 'Recuadro',
@@ -811,6 +817,12 @@
         height: viewportHeight,
         viewportWidth,
         viewportHeight,
+        cropBox: {
+          x: scroll.x,
+          y: scroll.y,
+          width: viewportWidth,
+          height: viewportHeight
+        },
         words: words.map(w => ({ ...w, x: w.x - scroll.x, y: w.y - scroll.y })),
         links: links.map(l => ({ ...l, x: l.x - scroll.x, y: l.y - scroll.y })),
         title: document.title || 'Vista Visible',

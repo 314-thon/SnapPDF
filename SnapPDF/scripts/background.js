@@ -47,19 +47,38 @@ chrome.commands.onCommand.addListener(async (command) => {
     if (command === 'capture-selection') {
       chrome.tabs.sendMessage(tab.id, { action: 'start-selection' });
     } else if (command === 'capture-fullpage') {
+      let vectorResult = null;
+      try {
+        vectorResult = await printTabToVectorPdf(tab);
+      } catch (e) {
+        console.warn('[SnapPDF Background] Falló printTabToVectorPdf en comando fullpage:', e);
+      }
+
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'run-fallback-fullpage' });
       if (response && response.status === 'completed') {
         await openPreview({
-          isVector: false,
+          isVector: !!vectorResult,
+          pdfBase64: vectorResult?.pdfBase64,
           type: 'fullpage',
           ...response.payload
         });
       }
     } else if (command === 'capture-visible') {
+      let vectorResult = null;
+      try {
+        vectorResult = await printTabToVectorPdf(tab);
+      } catch (e) {
+        console.warn('[SnapPDF Background] Falló printTabToVectorPdf en comando visible:', e);
+      }
+
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'run-fallback-visible' });
       if (response && response.status === 'completed') {
         await openPreview({
-          isVector: false,
+          isVector: !!vectorResult,
+          pdfBase64: vectorResult?.pdfBase64,
+          fullDocWidth: vectorResult?.width,
+          fullDocHeight: vectorResult?.height,
+          cropBox: response.payload.cropBox,
           type: 'visible',
           ...response.payload
         });
@@ -92,12 +111,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       // Notificación de captura terminada desde el content script (recuadro seleccionado)
       if (request.action === 'capture-completed') {
+        sendResponse({ success: true });
+        const senderTab = sender.tab;
+        let vectorResult = null;
+        if (senderTab?.id) {
+          try {
+            vectorResult = await printTabToVectorPdf(senderTab);
+          } catch (e) {
+            console.warn('[SnapPDF Background] Error generando PDF vectorial para recuadro:', e);
+          }
+        }
+
         const payload = {
-          isVector: false,
+          isVector: !!vectorResult,
+          pdfBase64: vectorResult?.pdfBase64,
+          fullDocWidth: vectorResult?.width,
+          fullDocHeight: vectorResult?.height,
+          cropBox: request.payload.cropBox,
           ...request.payload
         };
         await openPreview(payload);
-        sendResponse({ success: true });
         return;
       }
 
@@ -118,10 +151,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab?.id) {
           await ensureContentScript(tab.id);
+          let vectorResult = null;
+          try {
+            vectorResult = await printTabToVectorPdf(tab);
+          } catch (e) {
+            console.warn('[SnapPDF Background] Falló printTabToVectorPdf en fullpage:', e);
+          }
+
           const response = await chrome.tabs.sendMessage(tab.id, { action: 'run-fallback-fullpage' });
           if (response && response.status === 'completed') {
             await openPreview({
-              isVector: false,
+              isVector: !!vectorResult,
+              pdfBase64: vectorResult?.pdfBase64,
               type: 'fullpage',
               ...response.payload
             });
@@ -136,34 +177,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab?.id) {
           await ensureContentScript(tab.id);
+          let vectorResult = null;
+          try {
+            vectorResult = await printTabToVectorPdf(tab);
+          } catch (e) {
+            console.warn('[SnapPDF Background] Falló printTabToVectorPdf en visible:', e);
+          }
+
           const response = await chrome.tabs.sendMessage(tab.id, { action: 'run-fallback-visible' });
           if (response && response.status === 'completed') {
             await openPreview({
-              isVector: false,
+              isVector: !!vectorResult,
+              pdfBase64: vectorResult?.pdfBase64,
+              fullDocWidth: vectorResult?.width,
+              fullDocHeight: vectorResult?.height,
+              cropBox: response.payload.cropBox,
               type: 'visible',
               ...response.payload
-            });
-          }
-        }
-        return;
-      }
-
-      // Disparador de PDF vectorial nativo (Chrome DevTools Protocol)
-      if (request.action === 'trigger-vector-pdf') {
-        sendResponse({ success: true });
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) {
-          await ensureContentScript(tab.id);
-          const result = await printTabToVectorPdf(tab);
-          if (result && result.pdfBase64) {
-            await openPreview({
-              isVector: true,
-              type: 'vector',
-              pdfBase64: result.pdfBase64,
-              title: tab.title || 'Página Web',
-              url: tab.url || '',
-              width: result.width || 1200,
-              height: result.height || 1600
             });
           }
         }

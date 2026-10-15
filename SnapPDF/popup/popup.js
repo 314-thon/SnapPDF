@@ -35,11 +35,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.sendMessage({ action: 'trigger-visible' });
     window.close();
   });
-
-  if (btnVectorPdf) {
-    btnVectorPdf.addEventListener('click', async () => {
-      chrome.runtime.sendMessage({ action: 'trigger-vector-pdf' });
-      window.close();
-    });
-  }
 });

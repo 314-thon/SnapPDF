@@ -131,89 +131,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     formatSelectGroup.style.display = (captureData.type === 'fullpage' || captureData.type === 'vector') ? 'flex' : 'none';
   }
 
-  if (captureData.isVector && captureData.pdfBase64) {
-    // Modo Vectorial Nativo Directo (Page.printToPDF)
-    vectorBadge.style.display = 'inline-flex';
-    vectorBadge.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-      </svg>
-      PDF 100% Vectorial Nativo
-    `;
-    statEngineEl.textContent = '🚀 Motor Chromium Nativo (Vectorial)';
-    statDimensionsEl.textContent = `${captureData.width || '-'} x ${captureData.height || '-'} px`;
-    if (statWordsEl) statWordsEl.textContent = 'Texto vectorial original';
+  // 2. Procesar imagen para previsualización / portapapeles y preparar el PDF vectorial
+  try {
+    const hasImagePayload = !!(captureData.slices?.length || captureData.dataUrl);
 
-    btnDownloadPng.style.display = 'none';
-    if (btnCopyPng) btnCopyPng.style.display = 'none';
-    if (btnCopyLinks) btnCopyLinks.style.display = 'none';
-    layersCard.style.display = 'none';
-
-    try {
-      loadingStatusText.textContent = 'Decodificando PDF vectorial nativo...';
-      const binaryString = atob(captureData.pdfBase64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      captureData.pdfBytes = bytes;
-
-      activePdfBlob = new Blob([bytes], { type: 'application/pdf' });
-      activePdfUrl = URL.createObjectURL(activePdfBlob);
-
-      pdfPreviewFrame.src = activePdfUrl;
-      pdfViewerWrapper.style.display = 'flex';
-      canvasWrapper.style.display = 'none';
-
-      loadingIndicator.style.display = 'none';
-      previewContainer.style.display = 'flex';
-      btnDownloadPdf.disabled = false;
-    } catch (err) {
-      console.error('Error cargando PDF vectorial:', err);
-      loadingIndicator.innerHTML = `<p style="color: #ef4444; font-weight: 600;">Error al cargar PDF: ${err.message}</p>`;
-      return;
-    }
-  } else {
-    // Modo compuesto por imágenes + OCR
-    vectorBadge.style.display = 'inline-flex';
-    vectorBadge.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-      </svg>
-      PDF Ultra HD (1 Página Exacta)
-    `;
-    statEngineEl.textContent = '✨ Ultra HD Multicapa (1 Página Exacta)';
-
-    btnDownloadPng.style.display = 'inline-flex';
-    if (btnCopyPng) btnCopyPng.style.display = 'inline-flex';
-    if (btnCopyLinks) btnCopyLinks.style.display = 'inline-flex';
-    layersCard.style.display = 'block';
-
-    // 2. Procesar imagen compuesta en Canvas y generar documento PDF nativo
-    try {
-      loadingStatusText.textContent = 'Ensamblando franjas y calibrando geometría...';
+    if (hasImagePayload) {
+      loadingStatusText.textContent = 'Ensamblando vista previa de imagen...';
       await processFallbackCapture();
+      btnDownloadPng.style.display = 'inline-flex';
+      if (btnCopyPng) btnCopyPng.style.display = 'inline-flex';
+      if (btnCopyLinks) btnCopyLinks.style.display = 'inline-flex';
+      layersCard.style.display = 'block';
 
-      loadingStatusText.textContent = 'Generando documento PDF de alta fidelidad...';
-      const pdfBytes = await generateFallbackSearchablePdf();
-      captureData.pdfBytes = pdfBytes;
-
-      activePdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
-      activePdfUrl = URL.createObjectURL(activePdfBlob);
-
-      pdfPreviewFrame.src = activePdfUrl;
-      pdfViewerWrapper.style.display = 'flex';
-      canvasWrapper.style.display = 'none';
-
-      loadingIndicator.style.display = 'none';
-      previewContainer.style.display = 'flex';
-      btnDownloadPdf.disabled = false;
-      btnDownloadPng.disabled = false;
-      if (btnCopyPng) btnCopyPng.disabled = false;
-      if (btnCopyLinks) btnCopyLinks.disabled = false;
-
-      // Copiar automáticamente el PNG al portapapeles tan pronto esté listo
+      // Copiar automáticamente al portapapeles la imagen
       copyCanvasToClipboard(true).then((copied) => {
         if (!copied) {
           const onFirstFocus = () => {
@@ -223,11 +153,74 @@ document.addEventListener('DOMContentLoaded', async () => {
           window.addEventListener('focus', onFirstFocus, { once: true });
         }
       });
-    } catch (err) {
-      console.error('Error procesando captura:', err);
-      loadingIndicator.innerHTML = `<p style="color: #ef4444; font-weight: 600;">Error al renderizar: ${err.message}</p>`;
-      return;
+    } else {
+      btnDownloadPng.style.display = 'none';
+      if (btnCopyPng) btnCopyPng.style.display = 'none';
+      if (btnCopyLinks) btnCopyLinks.style.display = 'none';
+      layersCard.style.display = 'none';
     }
+
+    if (captureData.isVector && captureData.pdfBase64) {
+      loadingStatusText.textContent = 'Procesando documento PDF vectorial nativo...';
+
+      const binaryString = atob(captureData.pdfBase64);
+      const len = binaryString.length;
+      let rawBytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        rawBytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Si es un recuadro o vista visible recortada, recortamos el PDF vectorial nativo exactamente
+      if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
+        loadingStatusText.textContent = 'Ajustando recuadro vectorial milimétrico...';
+        rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
+      }
+
+      captureData.pdfBytes = rawBytes;
+      activePdfBlob = new Blob([rawBytes], { type: 'application/pdf' });
+      activePdfUrl = URL.createObjectURL(activePdfBlob);
+
+      statEngineEl.textContent = '🚀 Motor Chromium Nativo (100% Vectorial)';
+      vectorBadge.style.display = 'inline-flex';
+      vectorBadge.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        PDF 100% Vectorial Nativo
+      `;
+    } else {
+      loadingStatusText.textContent = 'Generando documento PDF de alta fidelidad...';
+      const pdfBytes = await generateFallbackSearchablePdf();
+      captureData.pdfBytes = pdfBytes;
+      activePdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+      activePdfUrl = URL.createObjectURL(activePdfBlob);
+
+      statEngineEl.textContent = '✨ Ultra HD Multicapa (1 Página Exacta)';
+      vectorBadge.style.display = 'inline-flex';
+      vectorBadge.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        PDF Ultra HD (1 Página Exacta)
+      `;
+    }
+
+    pdfPreviewFrame.src = activePdfUrl;
+    pdfViewerWrapper.style.display = 'flex';
+    canvasWrapper.style.display = 'none';
+
+    loadingIndicator.style.display = 'none';
+    previewContainer.style.display = 'flex';
+    btnDownloadPdf.disabled = false;
+    if (hasImagePayload) {
+      btnDownloadPng.disabled = false;
+      if (btnCopyPng) btnCopyPng.disabled = false;
+      if (btnCopyLinks) btnCopyLinks.disabled = false;
+    }
+  } catch (err) {
+    console.error('Error procesando captura:', err);
+    loadingIndicator.innerHTML = `<p style="color: #ef4444; font-weight: 600;">Error al procesar: ${err.message}</p>`;
+    return;
   }
 
   async function processFallbackCapture() {
@@ -493,7 +486,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnDownloadPdf.textContent = 'Reorganizando páginas...';
 
       try {
-        if (pdfLayoutSelect.value === 'a4' && captureData.type === 'fullpage' && captureData.pdfBytes) {
+        if (pdfLayoutSelect.value === 'a4' && captureData.pdfBytes) {
           const a4Bytes = await splitVectorPdfToA4(captureData.pdfBytes);
           activePdfBlob = new Blob([a4Bytes], { type: 'application/pdf' });
         } else if (captureData.pdfBytes) {
@@ -758,6 +751,37 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       currentY += a4H;
     }
+
+    return await destDoc.save();
+  }
+
+  // Recortar PDF vectorial al área del recuadro o viewport manteniendo vectores y links intactos
+  async function cropVectorPdf(srcData, cropBox, fullWidth, fullHeight) {
+    const { PDFDocument } = PDFLib;
+    const srcDoc = await PDFDocument.load(srcData);
+    const srcPage = srcDoc.getPages()[0];
+    const { width: srcPdfW, height: srcPdfH } = srcPage.getSize();
+
+    // Factores de escala entre las coordenadas del DOM (px) y las unidades PDF (pt)
+    const scaleX = srcPdfW / (fullWidth || srcPdfW);
+    const scaleY = srcPdfH / (fullHeight || srcPdfH);
+
+    const targetW = Math.max(10, cropBox.width * scaleX);
+    const targetH = Math.max(10, cropBox.height * scaleY);
+    const pdfX = cropBox.x * scaleX;
+    // En PDF el origen (0,0) está en la esquina inferior izquierda
+    const pdfY = srcPdfH - ((cropBox.y + cropBox.height) * scaleY);
+
+    const destDoc = await PDFDocument.create();
+    const destPage = destDoc.addPage([targetW, targetH]);
+    const [embedded] = await destDoc.embedPdf(srcDoc, [0]);
+
+    destPage.drawPage(embedded, {
+      x: -pdfX,
+      y: -pdfY,
+      width: srcPdfW,
+      height: srcPdfH
+    });
 
     return await destDoc.save();
   }
