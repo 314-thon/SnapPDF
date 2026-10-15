@@ -103,13 +103,15 @@ body {
 .flag-btn {
   background: transparent;
   border: none;
-  font-size: 16px;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 3px 5px;
   border-radius: 4px;
-  line-height: 1;
+  line-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: transform 0.15s ease, filter 0.15s ease, background-color 0.15s ease;
-  filter: grayscale(40%);
+  filter: grayscale(30%);
   opacity: 0.75;
 }
 
@@ -124,6 +126,15 @@ body {
   opacity: 1;
   background: rgba(59, 130, 246, 0.3);
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.6);
+}
+
+.flag-img {
+  width: 20px;
+  height: 14px;
+  border-radius: 2px;
+  object-fit: cover;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
 
 .vector-badge {
