@@ -71,13 +71,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function sanitizeForWinAnsi(str) {
     if (!str) return '';
-    return str
+    const s = str
+      .replace(/[→➔➜➝➡⇒▶►]/g, '->')
+      .replace(/[←⬅⇐◀◄]/g, '<-')
+      .replace(/[↔⇄⇆]/g, '<->')
       .replace(/[\u201C\u201D]/g, '"')
       .replace(/[\u2018\u2019]/g, "'")
       .replace(/[\u2013\u2014]/g, '-')
       .replace(/\u2026/g, '...')
-      .replace(/\u2022/g, '*')
-      .replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ');
+      .replace(/[\u2022]/g, '·')
+      .replace(/\u00A0/g, ' ')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+    let out = '';
+    for (const ch of s) {
+      const code = ch.charCodeAt(0);
+      // Basic ASCII & Latin-1 Supplement (covers á, é, í, ó, ú, ñ, Á, É, Í, Ó, Ú, Ñ, ü, Ü, ¿, ¡, ·, etc.)
+      if ((code >= 0x20 && code <= 0x7E) || (code >= 0xA0 && code <= 0xFF)) {
+        out += ch;
+      } else {
+        // Decompose non-Latin-1 accented characters to base ASCII
+        const decomp = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (decomp && decomp !== ch && decomp.charCodeAt(0) <= 0x7E) {
+          out += decomp;
+        } else {
+          out += ' ';
+        }
+      }
+    }
+    return out;
   }
 
   // 1. Cargar captura desde almacenamiento local
@@ -318,51 +340,74 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     page.pushOperators(setTextRenderingMode(TextRenderingMode.Invisible));
 
-    normalizedWords.forEach(w => {
-      if (!w.text || w.text.trim().length === 0) return;
+    // Ordenar palabras en flujo natural de lectura (arriba hacia abajo, izquierda a derecha)
+    const sortedWords = [...normalizedWords].sort((a, b) => {
+      const dy = a.y - b.y;
+      if (Math.abs(dy) > 5) return dy;
+      return a.x - b.x;
+    });
+
+    for (let i = 0; i < sortedWords.length; i++) {
+      const w = sortedWords[i];
+      if (!w.text || w.text.trim().length === 0) continue;
+
+      let clean = sanitizeForWinAnsi(w.text).trim();
+      if (!clean) continue;
+
       const pdfX = w.x;
       const pdfY = finalHeight - (w.y + w.height);
-      const fontSize = Math.max(4, Math.round(w.height * 0.75));
+      let fontSize = Math.max(4, Math.round(w.height * 0.75));
 
-      const hasUnicode = w.hasUnicode || /[^\x20-\x7E]/.test(w.text);
-      if (hasUnicode) {
-        // Operador estándar /ActualText con codificación UTF-16BE
-        const hex = toUtf16Hex(w.text);
-        const dict = pdfDoc.context.obj({
-          ActualText: PDFHexString.of(hex)
-        });
-        page.pushOperators(PDFOperator.of('BDC', [PDFName.of('Span'), dict]));
+      // Verificar que el texto pueda ser codificado por Helvetica en WinAnsi
+      let textWidth = 0;
+      try {
+        textWidth = font.widthOfTextAtSize(clean, fontSize);
+      } catch (e) {
+        clean = clean.replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ').trim();
+        if (!clean) continue;
+        try {
+          textWidth = font.widthOfTextAtSize(clean, fontSize);
+        } catch (e2) {
+          continue;
+        }
+      }
 
-        const charCount = [...w.text].length;
-        page.drawText('M'.repeat(Math.max(1, charCount)), {
+      // 1. Evitar que la palabra sea más ancha que su caja en el DOM para no invadir el margen
+      if (w.width > 0 && textWidth > w.width) {
+        fontSize = Math.max(4, Math.floor(fontSize * (w.width / textWidth)));
+        textWidth = font.widthOfTextAtSize(clean, fontSize);
+      }
+
+      // 2. Preservar separación entre palabras contiguas en la misma línea:
+      // Solo si en el DOM existía un espacio real entre ambas (domGap >= 2).
+      // Si domGap < 2 (como dentro de fragmentos continuos o puntuación pegada), NO forzar separación.
+      const nextW = sortedWords[i + 1];
+      if (nextW && Math.abs(nextW.y - w.y) <= 5 && nextW.x > w.x) {
+        const domGap = nextW.x - (w.x + (w.width || textWidth));
+        const nextIsPunctuation = /^[,.:;!?)]/.test((nextW.text || '').trim());
+        if (domGap >= 2 && !nextIsPunctuation) {
+          const availWidth = nextW.x - w.x;
+          if (textWidth > availWidth - 3.5 && availWidth > 5) {
+            fontSize = Math.max(4, Math.floor(fontSize * ((availWidth - 3.5) / textWidth)));
+          }
+        }
+      }
+
+      // 3. Si es la última palabra de la línea, asegurar un espacio para que no se pegue con la línea siguiente
+      const isLineEnd = !nextW || (nextW.y > w.y + 5);
+      const textToDraw = isLineEnd ? (clean + ' ') : clean;
+
+      try {
+        page.drawText(textToDraw, {
           x: pdfX,
           y: pdfY,
           size: fontSize,
           font
         });
-
-        page.pushOperators(PDFOperator.of('EMC'));
-      } else {
-        const clean = sanitizeForWinAnsi(w.text).trim();
-        if (!clean) return;
-        try {
-          page.drawText(clean, {
-            x: pdfX,
-            y: pdfY,
-            size: fontSize,
-            font
-          });
-        } catch (e) {
-          try {
-            const hex = toUtf16Hex(w.text);
-            const dict = pdfDoc.context.obj({ ActualText: PDFHexString.of(hex) });
-            page.pushOperators(PDFOperator.of('BDC', [PDFName.of('Span'), dict]));
-            page.drawText('M'.repeat(Math.max(1, [...w.text].length)), { x: pdfX, y: pdfY, size: fontSize, font });
-            page.pushOperators(PDFOperator.of('EMC'));
-          } catch (err2) {}
-        }
+      } catch (err) {
+        console.warn('Error dibujando palabra en capa OCR invisible:', clean, err);
       }
-    });
+    }
 
     page.pushOperators(setTextRenderingMode(TextRenderingMode.Fill));
 

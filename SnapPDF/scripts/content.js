@@ -61,6 +61,8 @@
       const style = window.getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden') return false;
       if (parseFloat(style.opacity || '1') <= 0) return false;
+      if (style.fontSize === '0px') return false;
+      if (style.clip === 'rect(0px, 0px, 0px, 0px)' || style.clip === 'rect(0, 0, 0, 0)') return false;
       const rects = el.getClientRects();
       return rects && rects.length > 0;
     }
@@ -70,9 +72,6 @@
       const words = [];
       const links = [];
 
-      const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter
-        ? new Intl.Segmenter(undefined, { granularity: 'word' })
-        : null;
 
       const textIterator = document.createNodeIterator(
         document.body || document.documentElement,
@@ -106,58 +105,7 @@
         const text = textNode.textContent;
         if (!text) continue;
 
-        // Si tenemos Intl.Segmenter, aislar palabras y emojis con precisión quirúrgica
-        if (segmenter) {
-          try {
-            const segments = segmenter.segment(text);
-            for (const s of segments) {
-              const word = s.segment.trim();
-              if (!word) continue;
-
-              const startIndex = s.index;
-              const endIndex = s.index + s.segment.length;
-
-              range.setStart(textNode, startIndex);
-              range.setEnd(textNode, endIndex);
-              const rects = range.getClientRects();
-
-              for (let r = 0; r < rects.length; r++) {
-                const rect = rects[r];
-                if (rect.width < 1 || rect.height < 1) continue;
-
-                const pageX = rect.left + scroll.x;
-                const pageY = rect.top + scroll.y;
-                const pageRight = pageX + rect.width;
-                const pageBottom = pageY + rect.height;
-
-                if (bounds) {
-                  if (
-                    pageRight < bounds.left ||
-                    pageX > bounds.right ||
-                    pageBottom < bounds.top ||
-                    pageY > bounds.bottom
-                  ) {
-                    continue;
-                  }
-                }
-
-                const hasUnicode = /[^\x20-\x7E\xA0-\xFF]/.test(word);
-
-                words.push({
-                  text: word,
-                  x: Math.round(pageX),
-                  y: Math.round(pageY),
-                  width: Math.round(rect.width),
-                  height: Math.round(rect.height),
-                  hasUnicode
-                });
-              }
-            }
-            continue;
-          } catch (e) {}
-        }
-
-        // Fallback básico si Intl.Segmenter no estuviera presente
+        // Segmentación por espacios en blanco para preservar URLs, puntuación y palabras completas
         const len = text.length;
         let wordStart = -1;
 
