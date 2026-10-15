@@ -236,7 +236,7 @@ async function printTabToVectorPdf(tab) {
       console.warn('[SnapPDF] No se pudo obtener métricas de layout, usando estándar:', metricsErr);
     }
 
-    // Parámetros de impresión vectorial continua sin márgenes
+    // Parámetros de impresión vectorial continua optimizados para menor tamaño
     const printOptions = {
       landscape: false,
       displayHeaderFooter: false,
@@ -249,8 +249,8 @@ async function printTabToVectorPdf(tab) {
       marginLeft: 0,
       marginRight: 0,
       preferCSSPageSize: false,
-      generateTaggedPDF: true,
-      generateDocumentOutline: true
+      generateTaggedPDF: false,
+      generateDocumentOutline: false
     };
 
     const pdfResult = await chrome.debugger.sendCommand(target, 'Page.printToPDF', printOptions);

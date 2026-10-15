@@ -758,9 +758,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Recortar PDF vectorial al área del recuadro o viewport manteniendo vectores y links intactos
   async function cropVectorPdf(srcData, cropBox, fullWidth, fullHeight) {
     const { PDFDocument } = PDFLib;
-    const srcDoc = await PDFDocument.load(srcData);
-    const srcPage = srcDoc.getPages()[0];
-    const { width: srcPdfW, height: srcPdfH } = srcPage.getSize();
+    const pdfDoc = await PDFDocument.load(srcData);
+    const page = pdfDoc.getPages()[0];
+    const { width: srcPdfW, height: srcPdfH } = page.getSize();
 
     // Factores de escala entre las coordenadas del DOM (px) y las unidades PDF (pt)
     const scaleX = srcPdfW / (fullWidth || srcPdfW);
@@ -772,18 +772,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // En PDF el origen (0,0) está en la esquina inferior izquierda
     const pdfY = srcPdfH - ((cropBox.y + cropBox.height) * scaleY);
 
-    const destDoc = await PDFDocument.create();
-    const destPage = destDoc.addPage([targetW, targetH]);
-    const [embedded] = await destDoc.embedPdf(srcDoc, [0]);
+    // Ajustar los límites visibles nativos del PDF sin clonar ni duplicar el stream
+    page.setCropBox(pdfX, pdfY, targetW, targetH);
+    page.setMediaBox(pdfX, pdfY, targetW, targetH);
 
-    destPage.drawPage(embedded, {
-      x: -pdfX,
-      y: -pdfY,
-      width: srcPdfW,
-      height: srcPdfH
-    });
-
-    return await destDoc.save();
+    return await pdfDoc.save({ useObjectStreams: true });
   }
 
   function triggerDownload(blob, extension) {
