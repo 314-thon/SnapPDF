@@ -48,6 +48,15 @@
           <span data-i18n="vectorBadge">PDF de Alta Fidelidad (Vectorial)</span>
         </div>
 
+        <div class="format-select-group" id="renderModeGroup">
+          <label for="pdfEngineSelect">Modo:</label>
+          <select id="pdfEngineSelect" class="select-control">
+            <option value="vector-clean" selected>⚡ Vectorial Puro (Ultraliviano ~50KB)</option>
+            <option value="raster-hd">📸 Ultra HD (Fiel con imagen)</option>
+            <option value="cdp-full">🌐 CDP Chromium (Completo)</option>
+          </select>
+        </div>
+
         <div class="format-select-group" id="formatSelectGroup">
           <label for="pdfLayoutSelect" data-i18n="formatLabel">Formato:</label>
           <select id="pdfLayoutSelect" class="select-control">

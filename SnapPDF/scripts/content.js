@@ -144,12 +144,18 @@
 
                 const hasUnicode = /[^\x20-\x7E\xA0-\xFF]/.test(word);
 
+                const compStyle = window.getComputedStyle(parent);
+                const color = compStyle ? compStyle.color : 'rgb(0,0,0)';
+                const fontWeight = compStyle ? compStyle.fontWeight : '400';
+
                 words.push({
                   text: word,
                   x: Math.round(pageX),
                   y: Math.round(pageY),
                   width: Math.round(rect.width),
                   height: Math.round(rect.height),
+                  color,
+                  fontWeight,
                   hasUnicode
                 });
               }

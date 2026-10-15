@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const pdfLayoutSelect = document.getElementById('pdfLayoutSelect');
   const formatSelectGroup = document.getElementById('formatSelectGroup');
+  const pdfEngineSelect = document.getElementById('pdfEngineSelect');
+  const renderModeGroup = document.getElementById('renderModeGroup');
   const btnDownloadPdf = document.getElementById('btnDownloadPdf');
   const btnDownloadPng = document.getElementById('btnDownloadPng');
   const btnCopyPng = document.getElementById('btnCopyPng');
@@ -160,49 +162,76 @@ document.addEventListener('DOMContentLoaded', async () => {
       layersCard.style.display = 'none';
     }
 
-    if (captureData.isVector && captureData.pdfBase64) {
-      loadingStatusText.textContent = 'Procesando documento PDF vectorial nativo...';
+    // Generar el PDF vectorial ultraliviano limpio por defecto (~30-60 KB)
+    loadingStatusText.textContent = 'Generando PDF vectorial ultraliviano...';
+    const cleanVectorBytes = await generateCleanVectorPdf();
+    captureData.cleanVectorBytes = cleanVectorBytes;
+    captureData.pdfBytes = cleanVectorBytes;
 
-      const binaryString = atob(captureData.pdfBase64);
-      const len = binaryString.length;
-      let rawBytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        rawBytes[i] = binaryString.charCodeAt(i);
-      }
+    activePdfBlob = new Blob([cleanVectorBytes], { type: 'application/pdf' });
+    activePdfUrl = URL.createObjectURL(activePdfBlob);
 
-      // Si es un recuadro o vista visible recortada, recortamos el PDF vectorial nativo exactamente
-      if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
-        loadingStatusText.textContent = 'Ajustando recuadro vectorial milimétrico...';
-        rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
-      }
+    statEngineEl.textContent = '⚡ Vectorial Puro (Ultraliviano ~50KB)';
+    vectorBadge.style.display = 'inline-flex';
+    vectorBadge.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+      Vectorial Puro Ultraliviano
+    `;
 
-      captureData.pdfBytes = rawBytes;
-      activePdfBlob = new Blob([rawBytes], { type: 'application/pdf' });
-      activePdfUrl = URL.createObjectURL(activePdfBlob);
+    // Escuchar cambio de modo en el selector de motor
+    if (pdfEngineSelect) {
+      pdfEngineSelect.addEventListener('change', async () => {
+        btnDownloadPdf.disabled = true;
+        const prevText = btnDownloadPdf.innerHTML;
+        btnDownloadPdf.textContent = 'Cambiando motor...';
 
-      statEngineEl.textContent = '🚀 Motor Chromium Nativo (100% Vectorial)';
-      vectorBadge.style.display = 'inline-flex';
-      vectorBadge.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-        PDF 100% Vectorial Nativo
-      `;
-    } else {
-      loadingStatusText.textContent = 'Generando documento PDF de alta fidelidad...';
-      const pdfBytes = await generateFallbackSearchablePdf();
-      captureData.pdfBytes = pdfBytes;
-      activePdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
-      activePdfUrl = URL.createObjectURL(activePdfBlob);
+        try {
+          const mode = pdfEngineSelect.value;
+          if (mode === 'vector-clean') {
+            if (!captureData.cleanVectorBytes) {
+              captureData.cleanVectorBytes = await generateCleanVectorPdf();
+            }
+            captureData.pdfBytes = captureData.cleanVectorBytes;
+            statEngineEl.textContent = '⚡ Vectorial Puro (Ultraliviano ~50KB)';
+          } else if (mode === 'raster-hd') {
+            if (!captureData.rasterHdBytes) {
+              captureData.rasterHdBytes = await generateFallbackSearchablePdf();
+            }
+            captureData.pdfBytes = captureData.rasterHdBytes;
+            statEngineEl.textContent = '📸 Ultra HD Fiel Multicapa';
+          } else if (mode === 'cdp-full') {
+            if (!captureData.cdpBytes && captureData.isVector && captureData.pdfBase64) {
+              const binaryString = atob(captureData.pdfBase64);
+              const len = binaryString.length;
+              let rawBytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) rawBytes[i] = binaryString.charCodeAt(i);
+              if (captureData.cropBox && captureData.fullDocWidth && captureData.fullDocHeight) {
+                rawBytes = await cropVectorPdf(rawBytes, captureData.cropBox, captureData.fullDocWidth, captureData.fullDocHeight);
+              }
+              captureData.cdpBytes = rawBytes;
+            }
+            captureData.pdfBytes = captureData.cdpBytes || captureData.cleanVectorBytes;
+            statEngineEl.textContent = '🌐 CDP Chromium (Completo con assets)';
+          }
 
-      statEngineEl.textContent = '✨ Ultra HD Multicapa (1 Página Exacta)';
-      vectorBadge.style.display = 'inline-flex';
-      vectorBadge.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-        PDF Ultra HD (1 Página Exacta)
-      `;
+          let finalBytes = captureData.pdfBytes;
+          if (pdfLayoutSelect && pdfLayoutSelect.value === 'a4') {
+            finalBytes = await splitVectorPdfToA4(finalBytes);
+          }
+
+          if (activePdfUrl) URL.revokeObjectURL(activePdfUrl);
+          activePdfBlob = new Blob([finalBytes], { type: 'application/pdf' });
+          activePdfUrl = URL.createObjectURL(activePdfBlob);
+          pdfPreviewFrame.src = activePdfUrl;
+        } catch (switchErr) {
+          console.error('Error cambiando motor de PDF:', switchErr);
+        } finally {
+          btnDownloadPdf.disabled = false;
+          btnDownloadPdf.innerHTML = prevText;
+        }
+      });
     }
 
     pdfPreviewFrame.src = activePdfUrl;
@@ -775,6 +804,111 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Ajustar los límites visibles nativos del PDF sin clonar ni duplicar el stream
     page.setCropBox(pdfX, pdfY, targetW, targetH);
     page.setMediaBox(pdfX, pdfY, targetW, targetH);
+
+    return await pdfDoc.save({ useObjectStreams: true });
+  }
+
+  // Generador de PDF Vectorial Puro Ultraliviano (sin fotos de fondo, texto real nativo nítido)
+  async function generateCleanVectorPdf() {
+    const { PDFDocument, StandardFonts, rgb, PDFString, PDFName } = PDFLib;
+    const pdfDoc = await PDFDocument.create();
+    const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    const page = pdfDoc.addPage([finalWidth, finalHeight]);
+
+    // Fondo blanco limpio por defecto
+    page.drawRectangle({
+      x: 0,
+      y: 0,
+      width: finalWidth,
+      height: finalHeight,
+      color: rgb(1, 1, 1)
+    });
+
+    // Helper para parsear rgb(r, g, b)
+    function parseCssColor(cssStr) {
+      if (!cssStr) return rgb(0.1, 0.1, 0.1);
+      const m = cssStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (m) {
+        return rgb(parseInt(m[1], 10) / 255, parseInt(m[2], 10) / 255, parseInt(m[3], 10) / 255);
+      }
+      return rgb(0.1, 0.1, 0.1);
+    }
+
+    const sortedWords = [...normalizedWords].sort((a, b) => {
+      const dy = a.y - b.y;
+      if (Math.abs(dy) > 5) return dy;
+      return a.x - b.x;
+    });
+
+    for (const w of sortedWords) {
+      if (!w.text || !w.text.trim()) continue;
+      let clean = sanitizeForWinAnsi(w.text).trim();
+      if (!clean) continue;
+
+      const isBold = w.fontWeight && (parseInt(w.fontWeight, 10) >= 600 || w.fontWeight === 'bold');
+      const font = isBold ? boldFont : regularFont;
+      const textColor = parseCssColor(w.color);
+
+      const pdfX = w.x;
+      const pdfY = finalHeight - (w.y + w.height);
+      let fontSize = Math.max(5, Math.round(w.height * 0.8));
+
+      let textWidth = 0;
+      try {
+        textWidth = font.widthOfTextAtSize(clean, fontSize);
+      } catch (e) {
+        clean = clean.replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ').trim();
+        if (!clean) continue;
+        try {
+          textWidth = font.widthOfTextAtSize(clean, fontSize);
+        } catch (e2) {
+          continue;
+        }
+      }
+
+      if (w.width > 0 && textWidth > w.width) {
+        fontSize = Math.max(5, Math.floor(fontSize * (w.width / textWidth)));
+      }
+
+      try {
+        page.drawText(clean, {
+          x: pdfX,
+          y: pdfY,
+          size: fontSize,
+          font,
+          color: textColor
+        });
+      } catch (err) {
+        console.warn('Error dibujando texto vectorial limpio:', clean, err);
+      }
+    }
+
+    // Agregar enlaces activos
+    const annotRefs = [];
+    normalizedLinks.forEach(l => {
+      if (!l.url) return;
+      const pdfX = l.x;
+      const pdfY = finalHeight - (l.y + l.height);
+
+      const linkAnnot = pdfDoc.context.obj({
+        Type: 'Annot',
+        Subtype: 'Link',
+        Rect: [pdfX, pdfY, pdfX + l.width, pdfY + l.height],
+        Border: [0, 0, 0],
+        A: {
+          Type: 'Action',
+          S: 'URI',
+          URI: PDFString.of(l.url)
+        }
+      });
+      annotRefs.push(pdfDoc.context.register(linkAnnot));
+    });
+
+    if (annotRefs.length > 0) {
+      page.node.set(PDFName.of('Annots'), pdfDoc.context.obj(annotRefs));
+    }
 
     return await pdfDoc.save({ useObjectStreams: true });
   }
