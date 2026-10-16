@@ -93,13 +93,58 @@
   class DomHarvester {
     static isNodeVisible(el) {
       if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
-      const style = window.getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') return false;
-      if (parseFloat(style.opacity || '1') <= 0) return false;
-      if (style.fontSize === '0px') return false;
-      if (style.clip === 'rect(0px, 0px, 0px, 0px)' || style.clip === 'rect(0, 0, 0, 0)') return false;
+      if (el.closest('.cdk-visually-hidden, .visually-hidden, .sr-only, .screen-reader-text, .a11y-hidden, .u-vh, .katex-mathml, .MJX_Assistive_MathML, [hidden]')) {
+        return false;
+      }
+
       const rects = el.getClientRects();
-      return rects && rects.length > 0;
+      if (!rects || rects.length === 0) return false;
+      const elRect = el.getBoundingClientRect();
+      if (elRect.width < 2 || elRect.height < 2) return false;
+
+      let curr = el;
+      while (curr && curr.nodeType === Node.ELEMENT_NODE && curr !== document.documentElement) {
+        const st = window.getComputedStyle(curr);
+        if (st.display === 'none' || st.visibility === 'hidden' || st.visibility === 'collapse') return false;
+        if (parseFloat(st.opacity || '1') <= 0.02) return false;
+        if (parseFloat(st.fontSize) <= 1) return false;
+        if (parseFloat(st.textIndent) < -500) return false;
+
+        if (st.clip && st.clip !== 'auto') {
+          if (/rect\(\s*[01](px)?[\s,]+[01](px)?[\s,]+[01](px)?[\s,]+[01](px)?\s*\)/i.test(st.clip)) {
+            return false;
+          }
+        }
+        if (st.clipPath && st.clipPath !== 'none') {
+          if (/inset\(\s*(50|100)%|circle\(\s*0|polygon\(\s*0\s+0\s*,\s*0\s+0/i.test(st.clipPath)) {
+            return false;
+          }
+        }
+
+        const isClippedOverflow = (
+          st.overflow === 'hidden' || st.overflow === 'clip' ||
+          st.overflowX === 'hidden' || st.overflowX === 'clip' ||
+          st.overflowY === 'hidden' || st.overflowY === 'clip'
+        );
+        if (isClippedOverflow || st.position === 'absolute' || st.position === 'fixed') {
+          const cRect = curr.getBoundingClientRect();
+          if (isClippedOverflow && (cRect.width <= 4 || cRect.height <= 4)) {
+            return false;
+          }
+          if (isClippedOverflow && cRect.width > 0 && cRect.height > 0) {
+            if (
+              elRect.right <= cRect.left + 2 ||
+              elRect.left >= cRect.right - 2 ||
+              elRect.bottom <= cRect.top + 2 ||
+              elRect.top >= cRect.bottom - 2
+            ) {
+              return false;
+            }
+          }
+        }
+        curr = curr.parentElement;
+      }
+      return true;
     }
 
     static isIconElement(el, compStyle, rawText) {
@@ -194,10 +239,40 @@
         if (this.isIconElement(parent, compStyle, text)) continue;
 
         const color = compStyle ? compStyle.color : 'rgb(0,0,0)';
-        const fontWeight = compStyle ? compStyle.fontWeight : '400';
+        const rawFontFamily = compStyle && compStyle.fontFamily ? compStyle.fontFamily : 'sans-serif';
         const fontStyle = compStyle ? compStyle.fontStyle : 'normal';
         const bgColor = this.findEffectiveBgColor(parent);
         const preserveVisual = this.shouldPreserveVisual(parent, compStyle);
+
+        // Calcular peso tipográfico real (CSS font-weight + variable fonts + nombres de familia + etiquetas semánticas de título/negrita)
+        let weightNum = parseInt(compStyle ? compStyle.fontWeight : '400', 10);
+        if (isNaN(weightNum)) {
+          const fwStr = (compStyle && compStyle.fontWeight ? compStyle.fontWeight : '').toLowerCase();
+          weightNum = (fwStr === 'bold' || fwStr === 'bolder') ? 700 : 400;
+        }
+        const varSettings = compStyle ? compStyle.fontVariationSettings : '';
+        if (varSettings && varSettings !== 'normal') {
+          const mWght = varSettings.match(/["']wght["']\s+([\d.]+)/i);
+          if (mWght) {
+            weightNum = Math.max(weightNum, Math.round(parseFloat(mWght[1])));
+          }
+        }
+        const ffLower = rawFontFamily.toLowerCase();
+        if (/extrabold|ultrabold|black|heavy/.test(ffLower)) {
+          weightNum = Math.max(weightNum, 800);
+        } else if (/\bbold\b/.test(ffLower)) {
+          weightNum = Math.max(weightNum, 700);
+        } else if (/semibold|demibold|demi|medium/.test(ffLower)) {
+          weightNum = Math.max(weightNum, 600);
+        }
+
+        const headingEl = parent.closest('h1, h2, h3, h4, h5, h6, [role="heading"]');
+        const strongEl = parent.closest('strong, b, th, dt, legend, summary');
+        const isHeading = !!headingEl;
+        if (headingEl || strongEl) {
+          weightNum = Math.max(weightNum, 700);
+        }
+        const fontWeight = String(weightNum);
 
         // Segmentación por espacios en blanco para preservar URLs, puntuación y palabras completas
         const len = text.length;
@@ -236,8 +311,10 @@
                   }
                 }
 
-                const hasUnicode = /[^\x20-\x7E\xA0-\xFF]/.test(word);
-                const fontSize = compStyle ? parseFloat(compStyle.fontSize) || Math.round(rect.height * 0.8) : Math.round(rect.height * 0.8);
+                // Permitir que signos tipográficos comunes (comillas curvas, guiones largos, viñetas •, …, €, ™) se vectoricen
+                const hasUnicode = /[^\x20-\x7E\xA0-\xFF\u0152\u0153\u2013\u2014\u2018-\u201E\u2022\u2026\u2039\u203A\u20AC\u2122\u2212]/.test(word);
+                const rawFontSize = compStyle ? parseFloat(compStyle.fontSize) || (rect.height * 0.8) : (rect.height * 0.8);
+                const fontSize = +(rawFontSize.toFixed(2));
 
                 words.push({
                   text: word,
@@ -245,11 +322,13 @@
                   y: Math.round(pageY),
                   width: Math.round(rect.width),
                   height: Math.round(rect.height),
-                  fontSize: Math.round(fontSize),
+                  fontSize,
+                  fontFamily: rawFontFamily,
                   color,
                   bgColor,
                   fontWeight,
                   fontStyle,
+                  isHeading: isHeading || (weightNum >= 500 && fontSize >= 15.5),
                   hasUnicode,
                   preserveVisual: preserveVisual || hasUnicode
                 });
@@ -376,6 +455,84 @@
       }
 
       return { words, links, images, backgroundColor };
+    }
+
+    static collectWebFonts() {
+      const rules = [];
+      const crossOriginSheets = new Set();
+      const seenRuleKeys = new Set();
+
+      const processRuleList = (cssRules, baseHref) => {
+        if (!cssRules) return;
+        for (let i = 0; i < cssRules.length; i++) {
+          const rule = cssRules[i];
+          if (rule.type === CSSRule.FONT_FACE_RULE || (rule.cssText && /^@font-face/i.test(rule.cssText.trim()))) {
+            const st = rule.style;
+            if (!st) continue;
+            const rawFam = (st.getPropertyValue('font-family') || '').replace(/["']/g, '').trim().toLowerCase();
+            if (!rawFam) continue;
+
+            const unicodeRange = (st.getPropertyValue('unicode-range') || '').trim();
+            if (unicodeRange && !/U\+0*00-0*FF|U\+0*20-0*7[EF]|U\+0*00-0*7F/i.test(unicodeRange)) {
+              continue;
+            }
+
+            const weight = (st.getPropertyValue('font-weight') || '400').trim().toLowerCase();
+            const style = (st.getPropertyValue('font-style') || 'normal').trim().toLowerCase();
+            const src = st.getPropertyValue('src') || '';
+            if (!src) continue;
+
+            const urlRegex = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+            let match;
+            let bestUrl = null;
+            while ((match = urlRegex.exec(src)) !== null) {
+              const candidate = match[2].trim();
+              if (!candidate || candidate.startsWith('local(')) continue;
+              try {
+                const absUrl = new URL(candidate, baseHref || document.baseURI).href;
+                if (/\.(ttf|otf|woff)(\?|$|#)/i.test(absUrl)) {
+                  bestUrl = absUrl;
+                  break;
+                }
+                if (!bestUrl) {
+                  bestUrl = absUrl;
+                }
+              } catch (e) {}
+            }
+
+            if (bestUrl) {
+              const dedupKey = `${rawFam}|${weight}|${style}|${bestUrl}`;
+              if (!seenRuleKeys.has(dedupKey)) {
+                seenRuleKeys.add(dedupKey);
+                rules.push({ family: rawFam, weight, style, url: bestUrl });
+              }
+            }
+          } else if (rule.cssRules) {
+            try {
+              processRuleList(rule.cssRules, baseHref);
+            } catch (e) {}
+          }
+        }
+      };
+
+      try {
+        const sheets = Array.from(document.styleSheets || []);
+        for (const sheet of sheets) {
+          const href = sheet.href || document.baseURI;
+          try {
+            processRuleList(sheet.cssRules, href);
+          } catch (corsErr) {
+            if (sheet.href && /^https?:\/\//i.test(sheet.href)) {
+              crossOriginSheets.add(sheet.href);
+            }
+          }
+        }
+      } catch (e) {}
+
+      return {
+        rules,
+        crossOriginSheets: Array.from(crossOriginSheets).slice(0, 25)
+      };
     }
   }
 
@@ -763,6 +920,34 @@
   }
 
   class FallbackEngine {
+    static async requestCaptureSlice() {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const res = await new Promise(resolve => {
+          try {
+            chrome.runtime.sendMessage({ action: 'capture-slice' }, resp => {
+              if (chrome.runtime.lastError) {
+                resolve({ error: chrome.runtime.lastError.message, dataUrl: null });
+              } else {
+                resolve(resp);
+              }
+            });
+          } catch (e) {
+            resolve({ error: e.message, dataUrl: null });
+          }
+        });
+
+        if (res && res.dataUrl) {
+          return res;
+        }
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 560));
+        } else {
+          return res;
+        }
+      }
+      return null;
+    }
+
     static mergeHarvested(target, sliceHarvest) {
       if (sliceHarvest.backgroundColor && !target.backgroundColor) {
         target.backgroundColor = sliceHarvest.backgroundColor;
@@ -824,9 +1009,7 @@
         }, origScroll);
         this.mergeHarvested(harvested, initialHarvest);
 
-        const captureResponse = await new Promise(resolve => {
-          chrome.runtime.sendMessage({ action: 'capture-slice' }, resolve);
-        });
+        const captureResponse = await this.requestCaptureSlice();
 
         if (!captureResponse || !captureResponse.dataUrl) {
           throw new Error('Fallo al capturar franja visible: ' + (captureResponse?.error || 'sin respuesta de captura'));
@@ -906,9 +1089,7 @@
             const toast = document.getElementById('__snappdf_toast');
             if (toast) toast.style.display = 'none';
 
-            const captureResponse = await new Promise(resolve => {
-              chrome.runtime.sendMessage({ action: 'capture-slice' }, resolve);
-            });
+            const captureResponse = await this.requestCaptureSlice();
 
             if (toast) toast.style.display = 'block';
 
@@ -1007,6 +1188,7 @@
           height: Math.min(img.height, rectH - Math.max(0, img.y - rectY))
         })),
         backgroundColor: harvested.backgroundColor,
+        webFonts: DomHarvester.collectWebFonts(),
         title: document.title || 'Recuadro',
         url: window.location.href
       };
@@ -1084,9 +1266,7 @@
           }
           lastActualY = actualY;
 
-          const captureResponse = await new Promise(resolve => {
-            chrome.runtime.sendMessage({ action: 'capture-slice' }, resolve);
-          });
+          const captureResponse = await this.requestCaptureSlice();
 
           if (!captureResponse || !captureResponse.dataUrl) {
             break;
@@ -1151,6 +1331,7 @@
           links: harvested.links,
           images: harvested.images || [],
           backgroundColor: harvested.backgroundColor,
+          webFonts: DomHarvester.collectWebFonts(),
           title: document.title || 'Página Completa',
           url: window.location.href
         };
@@ -1181,9 +1362,7 @@
         bottom: scroll.y + viewportHeight
       });
 
-      const captureResponse = await new Promise(resolve => {
-        chrome.runtime.sendMessage({ action: 'capture-slice' }, resolve);
-      });
+      const captureResponse = await this.requestCaptureSlice();
 
       if (!captureResponse || !captureResponse.dataUrl) {
         throw new Error('No se pudo capturar la vista visible');
@@ -1211,6 +1390,7 @@
           height: Math.min(img.height, viewportHeight - Math.max(0, img.y - scroll.y))
         })),
         backgroundColor,
+        webFonts: DomHarvester.collectWebFonts(),
         title: document.title || 'Vista Visible',
         url: window.location.href
       };

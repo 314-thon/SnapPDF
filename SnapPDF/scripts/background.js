@@ -89,6 +89,53 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
+// Cola y control de cuota para chrome.tabs.captureVisibleTab (máx. 2 llamadas/seg en Chromium)
+let captureQueue = Promise.resolve();
+let lastCaptureTimestamp = 0;
+const MIN_CAPTURE_INTERVAL_MS = 540;
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function captureVisibleTabThrottled(windowId) {
+  const run = async () => {
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const now = Date.now();
+      const elapsed = now - lastCaptureTimestamp;
+      if (elapsed < MIN_CAPTURE_INTERVAL_MS) {
+        await sleep(MIN_CAPTURE_INTERVAL_MS - elapsed);
+      }
+
+      try {
+        lastCaptureTimestamp = Date.now();
+        const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
+        if (!dataUrl) {
+          throw new Error('chrome.tabs.captureVisibleTab devolvió un resultado vacío.');
+        }
+        return dataUrl;
+      } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        const isQuotaError = msg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND') || msg.includes('quota');
+        if (isQuotaError && attempt < maxAttempts) {
+          await sleep(560 * attempt);
+          continue;
+        }
+        if (attempt < maxAttempts) {
+          await sleep(350);
+          continue;
+        }
+        throw err;
+      }
+    }
+  };
+
+  const resultPromise = captureQueue.then(run, run);
+  captureQueue = resultPromise.catch(() => {});
+  return resultPromise;
+}
+
 // Manejo centralizado de mensajes
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
@@ -97,14 +144,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.action === 'capture-slice') {
         const windowId = (sender && sender.tab) ? sender.tab.windowId : null;
         try {
-          const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
-          if (!dataUrl) {
-            throw new Error('chrome.tabs.captureVisibleTab devolvió un resultado vacío.');
-          }
+          const dataUrl = await captureVisibleTabThrottled(windowId);
           sendResponse({ dataUrl });
         } catch (captureErr) {
-          console.error('[SnapPDF Background] Error en captureVisibleTab:', captureErr);
-          sendResponse({ error: captureErr.message, dataUrl: null });
+          console.warn('[SnapPDF Background] Aviso en captureVisibleTab:', captureErr?.message || captureErr);
+          sendResponse({ error: captureErr?.message || String(captureErr), dataUrl: null });
         }
         return;
       }
